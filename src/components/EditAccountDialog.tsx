@@ -1,75 +1,163 @@
-import { useState, useEffect } from "react";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+import { useEffect } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useAccount, Account } from "@/contexts/AccountContext";
+import { toast } from "sonner";
 
-interface Account {
-    id: string;
-    name: string;
-    clientId: string;
-    secretId: string;
-}
+const formSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  provider: z.enum(["activecampaign", "benchmark"]),
+  apiKey: z.string().min(1, "API Key is required"),
+  apiUrl: z.string().optional(),
+}).refine((data) => {
+  if (data.provider === "activecampaign" && (!data.apiUrl || data.apiUrl.trim() === "")) {
+    return false;
+  }
+  return true;
+}, {
+  message: "API URL is required for ActiveCampaign",
+  path: ["apiUrl"],
+});
 
 interface EditAccountDialogProps {
-  account: Account;
-  onAccountUpdate: (id: string, data: Omit<Account, 'id'>) => void;
-  children: React.ReactNode;
+  account: Account | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }
 
-export function EditAccountDialog({ account, onAccountUpdate, children }: EditAccountDialogProps) {
-  const [name, setName] = useState(account.name);
-  const [clientId, setClientId] = useState(account.clientId);
-  const [secretId, setSecretId] = useState(account.secretId);
-  const [open, setOpen] = useState(false);
+export function EditAccountDialog({ account, open, onOpenChange }: EditAccountDialogProps) {
+  const { updateAccount } = useAccount();
 
-  // This effect ensures the dialog's state is fresh every time it's opened
+  const form = useForm<z.infer<typeof formSchema>>({
+    resolver: zodResolver(formSchema),
+    defaultValues: {
+      name: "",
+      provider: "activecampaign",
+      apiKey: "",
+      apiUrl: "",
+    },
+  });
+
+  // Watch provider to toggle UI
+  const selectedProvider = form.watch("provider");
+
   useEffect(() => {
-    if (open) {
-      setName(account.name);
-      setClientId(account.clientId);
-      setSecretId(account.secretId);
+    if (account) {
+      form.reset({
+        name: account.name,
+        provider: account.provider || "activecampaign",
+        apiKey: account.apiKey,
+        apiUrl: account.apiUrl || "",
+      });
     }
-  }, [open, account]);
+  }, [account, form]);
 
-  const handleSubmit = () => {
-    onAccountUpdate(account.id, { name, clientId, secretId });
-    setOpen(false);
+  const onSubmit = async (values: z.infer<typeof formSchema>) => {
+    if (!account) return;
+    try {
+      await updateAccount(account.id, {
+        name: values.name,
+        provider: values.provider,
+        apiKey: values.apiKey,
+        apiUrl: values.provider === "activecampaign" ? values.apiUrl : undefined,
+      });
+      toast.success("Account updated successfully");
+      onOpenChange(false);
+    } catch (error) {
+      toast.error("Failed to update account");
+    }
   };
-  
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild onClick={(e) => e.stopPropagation()}>{children}</DialogTrigger>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle>Edit Account</DialogTitle>
-          <DialogDescription>Update the details for "{account.name}".</DialogDescription>
+          <DialogDescription>
+            Update account details and credentials.
+          </DialogDescription>
         </DialogHeader>
-        <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="name" className="text-right">Account Name</Label>
-                <Input id="name" value={name} onChange={(e) => setName(e.target.value)} className="col-span-3"/>
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="clientId" className="text-right">Client ID</Label>
-                <Input id="clientId" value={clientId} onChange={(e) => setClientId(e.target.value)} className="col-span-3"/>
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="secretId" className="text-right">Secret ID</Label>
-                <Input id="secretId" value={secretId} onChange={(e) => setSecretId(e.target.value)} className="col-span-3"/>
-            </div>
-        </div>
-        <DialogFooter>
-          <Button onClick={handleSubmit}>Save Changes</Button>
-        </DialogFooter>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            
+            <FormField
+              control={form.control}
+              name="name"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Account Name</FormLabel>
+                  <FormControl>
+                    <Input {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="provider"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Provider</FormLabel>
+                  <Select onValueChange={field.onChange} defaultValue={field.value} disabled> 
+                    {/* Disabled because changing provider on edit might be confusing, but you can enable it if you want */}
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a provider" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="activecampaign">ActiveCampaign</SelectItem>
+                      <SelectItem value="benchmark">Benchmark Email</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="apiKey"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{selectedProvider === 'benchmark' ? 'API Token' : 'API Key'}</FormLabel>
+                  <FormControl>
+                    <Input type="password" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            {selectedProvider === "activecampaign" && (
+              <FormField
+                control={form.control}
+                name="apiUrl"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>API URL</FormLabel>
+                    <FormControl>
+                      <Input {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
+
+            <DialogFooter>
+              <Button type="submit">Save Changes</Button>
+            </DialogFooter>
+          </form>
+        </Form>
       </DialogContent>
     </Dialog>
   );

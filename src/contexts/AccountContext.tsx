@@ -1,22 +1,25 @@
 import React, { createContext, useState, useContext, useEffect, ReactNode, useCallback } from 'react';
 
-// Define the shape of an ActiveCampaign account
-interface Account {
+// Unified Account Interface
+export interface Account {
   id: string;
   name: string;
+  provider: 'activecampaign' | 'benchmark'; // Added Provider
   apiKey: string;
-  apiUrl: string; // Added apiUrl
+  apiUrl?: string; // Optional (Required for AC)
   status?: "unknown" | "checking" | "connected" | "failed";
   lastCheckResponse?: any;
 }
+
+type AccountData = Omit<Account, 'id' | 'status' | 'lastCheckResponse'>;
 
 interface AccountContextType {
   accounts: Account[];
   activeAccount: Account | null;
   setActiveAccount: (account: Account | null) => void;
   fetchAccounts: () => Promise<void>;
-  addAccount: (accountData: Omit<Account, 'id' | 'status' | 'lastCheckResponse'>) => Promise<void>;
-  updateAccount: (id: string, data: Omit<Account, 'id' | 'status' | 'lastCheckResponse'>) => Promise<void>;
+  addAccount: (accountData: AccountData) => Promise<void>;
+  updateAccount: (id: string, data: AccountData) => Promise<void>;
   deleteAccount: (id: string) => Promise<void>;
   checkAccountStatus: (account: Account) => Promise<Account>;
 }
@@ -28,39 +31,63 @@ export const AccountProvider = ({ children }: { children: ReactNode }) => {
   const [activeAccount, setActiveAccountState] = useState<Account | null>(null);
 
   const setActiveAccount = (account: Account | null) => {
-    if (account) {
-        setAccounts(prev => prev.map(a => a.id === account.id ? account : a));
-    }
     setActiveAccountState(account);
   }
 
+  // --- SMART STATUS CHECK ---
   const checkAccountStatus = useCallback(async (account: Account): Promise<Account> => {
-    const response = await fetch('/api/accounts/check-status', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey: account.apiKey, apiUrl: account.apiUrl }) // Send both apiKey and apiUrl
-    });
-    const result = await response.json();
-    return { ...account, status: result.status, lastCheckResponse: result.response };
+    try {
+        let endpoint = '';
+        let body = {};
+
+        // 1. Determine Endpoint based on Provider
+        if (account.provider === 'benchmark') {
+            endpoint = '/api/benchmark/check-status';
+            body = { apiKey: account.apiKey };
+        } else {
+            // Default to ActiveCampaign
+            endpoint = '/api/activecampaign/check-status';
+            body = { apiKey: account.apiKey, apiUrl: account.apiUrl };
+        }
+
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        
+        const result = await response.json();
+        const status: Account['status'] = response.ok ? 'connected' : 'failed';
+        return { ...account, status: status, lastCheckResponse: result.response || result };
+
+    } catch (error) {
+        return { ...account, status: 'failed', lastCheckResponse: { error: 'Network error' } };
+    }
   }, []);
   
   const fetchAccounts = useCallback(async () => {
     try {
       const response = await fetch("/api/accounts");
-      let data: Account[] = await response.json();
+      const data: any[] = await response.json();
       
-      const accountsWithStatus = await Promise.all(data.map(acc => checkAccountStatus(acc)));
+      // Ensure every account has a provider
+      const validAccounts: Account[] = data.map(acc => ({
+          ...acc,
+          provider: acc.provider || 'activecampaign', // Default to AC if missing
+          status: 'unknown'
+      }));
       
+      const accountsWithStatus = await Promise.all(validAccounts.map(acc => checkAccountStatus(acc)));
       setAccounts(accountsWithStatus);
 
-      if (accountsWithStatus.length > 0) {
-        const currentActiveExists = activeAccount ? accountsWithStatus.some(a => a.id === activeAccount.id) : false;
-        if (!currentActiveExists) {
-            setActiveAccountState(accountsWithStatus[0]);
-        }
-      } else {
-        setActiveAccountState(null);
+      // Restore active account selection
+      if (activeAccount) {
+         const found = accountsWithStatus.find(a => a.id === activeAccount.id);
+         if (found) setActiveAccountState(found);
+      } else if (accountsWithStatus.length > 0) {
+         setActiveAccountState(accountsWithStatus[0]);
       }
+
     } catch (error) {
       console.error("Failed to fetch accounts:", error);
     }
@@ -70,7 +97,7 @@ export const AccountProvider = ({ children }: { children: ReactNode }) => {
     fetchAccounts();
   }, []);
 
-  const addAccount = async (accountData: Omit<Account, 'id' | 'status' | 'lastCheckResponse'>) => {
+  const addAccount = async (accountData: AccountData) => {
     await fetch("/api/accounts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -79,7 +106,7 @@ export const AccountProvider = ({ children }: { children: ReactNode }) => {
     await fetchAccounts();
   };
 
-  const updateAccount = async (id: string, data: Omit<Account, 'id' | 'status' | 'lastCheckResponse'>) => {
+  const updateAccount = async (id: string, data: AccountData) => {
     await fetch(`/api/accounts/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -91,8 +118,7 @@ export const AccountProvider = ({ children }: { children: ReactNode }) => {
   const deleteAccount = async (id: string) => {
     await fetch(`/api/accounts/${id}`, { method: 'DELETE' });
     if(activeAccount?.id === id) {
-        const remainingAccounts = accounts.filter(acc => acc.id !== id);
-        setActiveAccountState(remainingAccounts.length > 0 ? remainingAccounts[0] : null);
+        setActiveAccountState(null);
     }
     await fetchAccounts();
   };
@@ -104,6 +130,7 @@ export const AccountProvider = ({ children }: { children: ReactNode }) => {
     if (activeAccount?.id === account.id) {
         setActiveAccount(updatedAccount);
     }
+    return updatedAccount;
   }
   
   return (

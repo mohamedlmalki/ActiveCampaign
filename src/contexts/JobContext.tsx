@@ -5,7 +5,6 @@ import { toast } from "@/components/ui/use-toast";
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-// --- Interfaces ---
 interface Job {
     id: string;
     accountId: string;
@@ -28,7 +27,8 @@ interface ImportResult {
 
 interface JobContextType {
     jobs: Record<string, Job>;
-    startJob: (accountId: string, listId: string, listName: string, importData: string, delay: number) => void;
+    // Updated signature to accept defaultFirstName
+    startJob: (accountId: string, listId: string, listName: string, importData: string, delay: number, defaultFirstName?: string) => void;
     pauseJob: (jobId: string) => void;
     resumeJob: (jobId: string) => void;
     cancelJob: (jobId: string) => void;
@@ -36,11 +36,9 @@ interface JobContextType {
 
 const JobContext = createContext<JobContextType | undefined>(undefined);
 
-// --- Provider Component ---
 export const JobProvider = ({ children }: { children: ReactNode }) => {
     const { accounts } = useAccount();
     const [jobs, setJobs] = useState<Record<string, Job>>({});
-
     const jobControlRefs = useRef<Record<string, { isPaused: boolean; isCancelled: boolean }>>({});
     
     useEffect(() => {
@@ -60,8 +58,8 @@ export const JobProvider = ({ children }: { children: ReactNode }) => {
         return () => clearInterval(timer);
     }, []);
 
-
-    const startJob = useCallback(async (accountId: string, listId: string, listName: string, importData: string, delay: number) => {
+    // Updated startJob function
+    const startJob = useCallback(async (accountId: string, listId: string, listName: string, importData: string, delay: number, defaultFirstName?: string) => {
         const account = accounts.find(acc => acc.id === accountId);
         if (!account) {
             toast({ title: "Account not found", variant: "destructive" });
@@ -72,7 +70,8 @@ export const JobProvider = ({ children }: { children: ReactNode }) => {
             const parts = line.split(',');
             return {
                 email: parts[0]?.trim(),
-                firstName: parts[1]?.trim() || '',
+                // Use the CSV name IF it exists, otherwise use defaultFirstName, otherwise empty
+                firstName: parts[1]?.trim() || defaultFirstName || '',
                 lastName: parts[2]?.trim() || ''
             };
         });
@@ -99,8 +98,6 @@ export const JobProvider = ({ children }: { children: ReactNode }) => {
         };
 
         setJobs(prev => {
-            // --- THIS IS THE FIX ---
-            // Filter out any previous jobs for this account before adding the new one.
             const otherJobs = Object.fromEntries(
                 Object.entries(prev).filter(([_, job]) => job.accountId !== accountId)
             );
@@ -109,36 +106,36 @@ export const JobProvider = ({ children }: { children: ReactNode }) => {
 
         for (let i = 0; i < contacts.length; i++) {
             const controls = jobControlRefs.current[jobId];
-            if (controls.isCancelled) {
-                setJobs(prev => ({ ...prev, [jobId]: { ...prev[jobId], status: 'cancelled' } }));
+            if (!controls || controls.isCancelled) {
+                setJobs(prev => (prev[jobId] ? { ...prev, [jobId]: { ...prev[jobId], status: 'cancelled' } } : prev));
                 toast({ title: `Job for ${listName} cancelled` });
                 break;
             }
             while (controls.isPaused) {
                 await sleep(500);
             }
-             if (controls.isCancelled) {
-                setJobs(prev => ({ ...prev, [jobId]: { ...prev[jobId], status: 'cancelled' } }));
-                toast({ title: `Job for ${listName} cancelled` });
-                break;
-            }
 
             const contact = contacts[i];
-            if (i > 0) {
-                await sleep(delay * 1000);
-            }
+            if (i > 0) await sleep(delay * 1000);
 
             try {
-                const response = await fetch('/api/import/contact', {
+                let endpoint = '';
+                let payload = {};
+
+                if (account.provider === 'benchmark') {
+                    endpoint = '/api/benchmark/import/contact';
+                    payload = { apiKey: account.apiKey, listId: listId, contact: contact };
+                } else {
+                    endpoint = '/api/activecampaign/import/contact';
+                    payload = { apiKey: account.apiKey, apiUrl: account.apiUrl, listId: listId, contact: contact };
+                }
+
+                const response = await fetch(endpoint, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        apiKey: account.apiKey,
-                        apiUrl: account.apiUrl,
-                        contact: contact,
-                        listId: listId,
-                    })
+                    body: JSON.stringify(payload)
                 });
+                
                 const data = await response.json();
                 if (!response.ok) throw data;
 
@@ -165,14 +162,13 @@ export const JobProvider = ({ children }: { children: ReactNode }) => {
             }
         }
         
-        if (!jobControlRefs.current[jobId]?.isCancelled) {
+        if (jobControlRefs.current[jobId] && !jobControlRefs.current[jobId].isCancelled) {
              setJobs(prev => {
                 const currentJob = prev[jobId];
                 if (!currentJob) return prev;
                 return { ...prev, [jobId]: { ...currentJob, status: 'completed', progress: 100 } }
              });
         }
-
     }, [accounts]);
 
     const pauseJob = (jobId: string) => {
@@ -202,7 +198,6 @@ export const JobProvider = ({ children }: { children: ReactNode }) => {
     );
 };
 
-// --- Hook ---
 export const useJobs = () => {
     const context = useContext(JobContext);
     if (context === undefined) {
