@@ -1,8 +1,8 @@
 import { useAccount } from "@/contexts/AccountContext";
 
-// --- USE THESE ABSOLUTE PATHS ---
-import ACAutomations from "@/pages/activecampaign/Automations";
-import BMAutomations from "@/pages/benchmark/Automations"; 
+// --- FIX: Import the SINGULAR file names (Automation) ---
+import ACAutomations from "@/pages/activecampaign/Automation";
+import BMAutomations from "@/pages/benchmark/Automation"; 
 
 const Automations = () => {
   const { activeAccount } = useAccount();
