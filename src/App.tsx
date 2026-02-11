@@ -9,7 +9,6 @@ import Layout from "./components/Layout";
 
 // --- Page Imports ---
 import BulkImport from "./pages/BulkImport";
-import SingleUserImport from "./pages/SingleUserImport";
 import UserManagement from "./pages/UserManagement";
 import Automation from "./pages/Automation";
 import CampaignStats from "./pages/CampaignStats"; // Now uses our new Wrapper
@@ -33,7 +32,6 @@ const App = () => (
               <Route path="/" element={<Layout />}>
                 {/* Shared Routes (Wrappers) */}
                 <Route index element={<BulkImport />} />
-                <Route path="single-import" element={<SingleUserImport />} />
                 <Route path="users" element={<UserManagement />} />
                 <Route path="automation" element={<Automation />} />
                 

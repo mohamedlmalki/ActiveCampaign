@@ -27,7 +27,6 @@ interface ImportResult {
 
 interface JobContextType {
     jobs: Record<string, Job>;
-    // Updated signature to accept defaultFirstName
     startJob: (accountId: string, listId: string, listName: string, importData: string, delay: number, defaultFirstName?: string) => void;
     pauseJob: (jobId: string) => void;
     resumeJob: (jobId: string) => void;
@@ -58,7 +57,6 @@ export const JobProvider = ({ children }: { children: ReactNode }) => {
         return () => clearInterval(timer);
     }, []);
 
-    // Updated startJob function
     const startJob = useCallback(async (accountId: string, listId: string, listName: string, importData: string, delay: number, defaultFirstName?: string) => {
         const account = accounts.find(acc => acc.id === accountId);
         if (!account) {
@@ -70,7 +68,6 @@ export const JobProvider = ({ children }: { children: ReactNode }) => {
             const parts = line.split(',');
             return {
                 email: parts[0]?.trim(),
-                // Use the CSV name IF it exists, otherwise use defaultFirstName, otherwise empty
                 firstName: parts[1]?.trim() || defaultFirstName || '',
                 lastName: parts[2]?.trim() || ''
             };
@@ -125,6 +122,9 @@ export const JobProvider = ({ children }: { children: ReactNode }) => {
                 if (account.provider === 'benchmark') {
                     endpoint = '/api/benchmark/import/contact';
                     payload = { apiKey: account.apiKey, listId: listId, contact: contact };
+                } else if (account.provider === 'omnisend') {
+                    endpoint = '/api/omnisend/import/contact'; // <--- NEW ENDPOINT
+                    payload = { apiKey: account.apiKey, contact: contact };
                 } else {
                     endpoint = '/api/activecampaign/import/contact';
                     payload = { apiKey: account.apiKey, apiUrl: account.apiUrl, listId: listId, contact: contact };

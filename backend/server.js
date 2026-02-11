@@ -12,17 +12,17 @@ app.use(cors());
 app.use(express.json());
 
 // --- 1. IMPORT ROUTERS ---
-// This connects the files you created in the 'routes' folder
 const activeCampaignRoutes = require('./routes/activecampaign');
 const benchmarkRoutes = require('./routes/benchmark');
+const omnisendRoutes = require('./routes/omnisend'); // <--- NEW IMPORT
 
 // --- 2. MOUNT ROUTERS ---
-// This tells the server: "If a request starts with /api/activecampaign, go to that file."
 app.use('/api/activecampaign', activeCampaignRoutes);
 app.use('/api/benchmark', benchmarkRoutes);
+app.use('/api/omnisend', omnisendRoutes); // <--- NEW MOUNT
 
 
-// --- 3. ACCOUNTS MANAGEMENT (Kept here) ---
+// --- 3. ACCOUNTS MANAGEMENT ---
 
 const readAccounts = async () => {
   try {
@@ -111,15 +111,14 @@ app.delete("/api/accounts/:id", async (req, res) => {
     }
 });
 
-// Endpoint to check account status (Delegates to specific provider routes ideally, 
-// but for the Sidebar check, we can rely on the frontend calling the specific provider status route).
-// If your sidebar calls `/api/accounts/check-status`, we can redirect it:
-
+// Endpoint to check account status (Traffic Cop)
 app.post("/api/accounts/check-status", async (req, res) => {
-    // This is a "Traffic Cop" for status checks
     const { provider } = req.body;
+    
     if (provider === 'benchmark') {
         res.redirect(307, '/api/benchmark/check-status');
+    } else if (provider === 'omnisend') {
+        res.redirect(307, '/api/omnisend/check-status'); // <--- NEW REDIRECT
     } else {
         res.redirect(307, '/api/activecampaign/check-status');
     }
@@ -136,4 +135,5 @@ app.listen(PORT, () => {
   console.log(`Backend server is running on http://localhost:${PORT}`);
   console.log(`   - ActiveCampaign Routes: /api/activecampaign/*`);
   console.log(`   - Benchmark Routes:      /api/benchmark/*`);
+  console.log(`   - Omnisend Routes:       /api/omnisend/*`);
 });

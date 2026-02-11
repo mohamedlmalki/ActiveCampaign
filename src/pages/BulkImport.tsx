@@ -1,17 +1,16 @@
 import { useEffect } from "react";
 import { useAccount } from "@/contexts/AccountContext";
 import ACBulkImport from "./activecampaign/BulkImport";
-import BMBulkImport from "./benchmark/BulkImport"; // <--- IMPORT ENABLED
+import BMBulkImport from "./benchmark/BulkImport";
+import OmnisendBulkImport from "./omnisend/BulkImport"; // <--- NEW IMPORT
 
 const BulkImport = () => {
   const { activeAccount } = useAccount();
 
-  // Debug Log to see what is happening
   useEffect(() => {
     console.log("Current Active Account:", activeAccount);
   }, [activeAccount]);
 
-  // If no account is selected, show a message
   if (!activeAccount) {
     return (
       <div className="flex flex-col items-center justify-center h-[50vh] text-muted-foreground">
@@ -22,15 +21,16 @@ const BulkImport = () => {
 
   // --- TRAFFIC COP LOGIC ---
   
-  // 1. If ActiveCampaign, show the AC Page
   if (activeAccount.provider === 'activecampaign') {
     return <ACBulkImport />;
   } 
   
-  // 2. If Benchmark, show the Benchmark Page
   if (activeAccount.provider === 'benchmark') {
-     console.log("Rendering Benchmark Import Page...");
-     return <BMBulkImport />; // <--- COMPONENT ENABLED
+     return <BMBulkImport />;
+  }
+  
+  if (activeAccount.provider === 'omnisend') {
+     return <OmnisendBulkImport />; // <--- NEW RENDER
   }
 
   return <div>Unknown account provider: {activeAccount.provider}</div>;

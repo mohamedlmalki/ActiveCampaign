@@ -4,7 +4,7 @@ import React, { createContext, useState, useContext, useEffect, ReactNode, useCa
 export interface Account {
   id: string;
   name: string;
-  provider: 'activecampaign' | 'benchmark'; // Added Provider
+  provider: 'activecampaign' | 'benchmark' | 'omnisend'; // <--- UPDATED UNION TYPE
   apiKey: string;
   apiUrl?: string; // Optional (Required for AC)
   status?: "unknown" | "checking" | "connected" | "failed";
@@ -40,9 +40,12 @@ export const AccountProvider = ({ children }: { children: ReactNode }) => {
         let endpoint = '';
         let body = {};
 
-        // 1. Determine Endpoint based on Provider
+        // Determine Endpoint based on Provider
         if (account.provider === 'benchmark') {
             endpoint = '/api/benchmark/check-status';
+            body = { apiKey: account.apiKey };
+        } else if (account.provider === 'omnisend') {
+            endpoint = '/api/omnisend/check-status'; // <--- NEW CASE
             body = { apiKey: account.apiKey };
         } else {
             // Default to ActiveCampaign
@@ -73,7 +76,7 @@ export const AccountProvider = ({ children }: { children: ReactNode }) => {
       // Ensure every account has a provider
       const validAccounts: Account[] = data.map(acc => ({
           ...acc,
-          provider: acc.provider || 'activecampaign', // Default to AC if missing
+          provider: acc.provider || 'activecampaign',
           status: 'unknown'
       }));
       

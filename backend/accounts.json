@@ -12,5 +12,19 @@
     "apiKey": "2DD6AF7B-9E70-4017-A2C6-1F8AEA2CEADB",
     "provider": "benchmark",
     "apiUrl": ""
+  },
+  {
+    "id": "acc_1770704694354_6a4f",
+    "name": "2",
+    "apiKey": "92E3E435-60B5-487C-A0F5-2B31582E5234",
+    "apiUrl": "",
+    "provider": "benchmark"
+  },
+  {
+    "id": "acc_1770760764557_7b71",
+    "name": "1 omnisend",
+    "apiKey": "68d9630c7155333203e3eef3-GpxdSbpACMoNdEAoPPoajDiWe5slF9MXpbycMT918W22U44Qvv",
+    "apiUrl": "",
+    "provider": "omnisend"
   }
 ]
