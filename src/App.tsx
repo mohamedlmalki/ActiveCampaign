@@ -11,12 +11,8 @@ import Layout from "./components/Layout";
 import BulkImport from "./pages/BulkImport";
 import UserManagement from "./pages/UserManagement";
 import Automation from "./pages/Automation";
-import CampaignStats from "./pages/CampaignStats"; // Now uses our new Wrapper
-import ForgetSubscriber from "./pages/ForgetSubscriber"; // Now uses our new Wrapper
 import NotFound from "./pages/NotFound";
 
-// Benchmark Specific Pages (Direct Import)
-import EmailManagement from "./pages/benchmark/EmailManagement"; 
 
 const queryClient = new QueryClient();
 
@@ -35,12 +31,6 @@ const App = () => (
                 <Route path="users" element={<UserManagement />} />
                 <Route path="automation" element={<Automation />} />
                 
-                {/* Provider Specific Routes */}
-                <Route path="campaign-stats" element={<CampaignStats />} />
-                <Route path="forget" element={<ForgetSubscriber />} />
-                
-                {/* Benchmark Specific Route */}
-                <Route path="emails" element={<EmailManagement />} />
 
                 {/* 404 Route */}
                 <Route path="*" element={<NotFound />} />

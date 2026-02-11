@@ -11,7 +11,8 @@ import {
   Plus,
   ChevronsUpDown,
   Check,
-  LogOut
+  LogOut,
+  Save // <--- ADDED THIS IMPORT
 } from "lucide-react"
 
 import {
@@ -52,7 +53,6 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useAccount, Account } from "@/contexts/AccountContext"
 import { Link, useLocation } from "react-router-dom"
-import { cn } from "@/lib/utils"
 import { toast } from "@/hooks/use-toast"
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
@@ -155,6 +155,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                 isActive={location.pathname === "/automation" && activeAccount?.provider === 'benchmark'}
                 onClick={() => handlePlatformClick('benchmark', '/automation')}
               />
+              <SidebarItem 
+                title="Emails / Campaigns" 
+                url="/emails" 
+                icon={Mail} 
+                isActive={location.pathname === "/emails" && activeAccount?.provider === 'benchmark'}
+                onClick={() => handlePlatformClick('benchmark', '/emails')}
+              />
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -233,6 +240,12 @@ function AccountSwitcher({ accounts, activeAccount, setActiveAccount, onAdd, onE
         return <Activity className="size-4" />;
     }
 
+    // --- SMART DROPDOWN LOGIC ---
+    const displayedAccounts = React.useMemo(() => {
+        if (!activeAccount) return accounts;
+        return accounts.filter((acc: Account) => acc.provider === activeAccount.provider);
+    }, [accounts, activeAccount]);
+
     return (
         <SidebarMenu>
           <SidebarMenuItem>
@@ -250,7 +263,7 @@ function AccountSwitcher({ accounts, activeAccount, setActiveAccount, onAdd, onE
                       {activeAccount ? activeAccount.name : "Select Account"}
                     </span>
                     <span className="truncate text-xs text-muted-foreground">
-                       {activeAccount ? "Active Session" : "No Active Session"}
+                       {activeAccount ? "Switch Account" : "No Active Session"}
                     </span>
                   </div>
                   <ChevronsUpDown className="ml-auto" />
@@ -262,12 +275,14 @@ function AccountSwitcher({ accounts, activeAccount, setActiveAccount, onAdd, onE
                 side="bottom"
                 sideOffset={4}
               >
-                 <DropdownMenuLabel className="text-xs font-bold text-muted-foreground">Switch Account</DropdownMenuLabel>
+                 <DropdownMenuLabel className="text-xs font-bold text-muted-foreground">
+                    {activeAccount ? `Switch ${activeAccount.provider} Account` : 'Select Account'}
+                 </DropdownMenuLabel>
                  <div className="max-h-[300px] overflow-y-auto">
-                    {accounts.length === 0 ? (
-                         <div className="p-2 text-sm text-muted-foreground">No accounts found.</div>
+                    {displayedAccounts.length === 0 ? (
+                         <div className="p-2 text-sm text-muted-foreground">No other accounts found.</div>
                     ) : (
-                        accounts.map((acc: Account) => (
+                        displayedAccounts.map((acc: Account) => (
                              <DropdownMenuItem 
                                 key={acc.id} 
                                 onClick={() => setActiveAccount(acc)}

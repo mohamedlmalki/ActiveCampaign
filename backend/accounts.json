@@ -1,7 +1,7 @@
 [
   {
     "id": "acc_1770601385880",
-    "name": "1 active",
+    "name": "1",
     "apiKey": "01e0108d0316e5a19bc31156b88cce524e7a6b3a20bd0475b84474841656538487b3470c",
     "apiUrl": "https://arfilm47.api-us1.com",
     "provider": "activecampaign"
@@ -23,7 +23,7 @@
   {
     "id": "acc_1770760764557_7b71",
     "name": "1 omnisend",
-    "apiKey": "68d9630c7155333203e3eef3-GpxdSbpACMoNdEAoPPoajDiWe5slF9MXpbycMT918W22U44Qvv",
+    "apiKey": "68d9630c7155333203e3eef3-jZT0gT0B05pIM2AdYL5059hbOQZje8ZjE5stfGvJ173XqQlM0s",
     "apiUrl": "",
     "provider": "omnisend"
   }

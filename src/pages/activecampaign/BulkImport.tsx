@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Upload, Play, FileJson2, Pause, Play as PlayIcon, XCircle } from "lucide-react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -38,7 +38,12 @@ export default function BulkImport() {
   const [selectedList, setSelectedList] = useState<string | null>(null);
   const [importData, setImportData] = useState("");
   const [delay, setDelay] = useState(1);
-  const [defaultFirstName, setDefaultFirstName] = useState(""); // <-- NEW STATE
+  const [defaultFirstName, setDefaultFirstName] = useState("");
+
+  // --- EMAIL COUNTER ---
+  const emailCount = useMemo(() => {
+    return importData.split('\n').filter(line => line.trim() !== '').length;
+  }, [importData]);
 
   // --- AUTO-LOAD DRAFT ---
   useEffect(() => {
@@ -46,12 +51,12 @@ export default function BulkImport() {
       const savedList = localStorage.getItem(`draft_ac_list_${activeAccount.id}`);
       const savedData = localStorage.getItem(`draft_ac_data_${activeAccount.id}`);
       const savedDelay = localStorage.getItem(`draft_ac_delay_${activeAccount.id}`);
-      const savedName = localStorage.getItem(`draft_ac_def_fname_${activeAccount.id}`); // <-- NEW
+      const savedName = localStorage.getItem(`draft_ac_def_fname_${activeAccount.id}`);
 
       if (savedList) setSelectedList(savedList);
       if (savedData) setImportData(savedData);
       if (savedDelay) setDelay(Number(savedDelay));
-      if (savedName) setDefaultFirstName(savedName); // <-- NEW
+      if (savedName) setDefaultFirstName(savedName);
     }
   }, [activeAccount]);
 
@@ -61,7 +66,7 @@ export default function BulkImport() {
       if (selectedList) localStorage.setItem(`draft_ac_list_${activeAccount.id}`, selectedList);
       localStorage.setItem(`draft_ac_data_${activeAccount.id}`, importData);
       localStorage.setItem(`draft_ac_delay_${activeAccount.id}`, delay.toString());
-      localStorage.setItem(`draft_ac_def_fname_${activeAccount.id}`, defaultFirstName); // <-- NEW
+      localStorage.setItem(`draft_ac_def_fname_${activeAccount.id}`, defaultFirstName);
     }
   }, [selectedList, importData, delay, defaultFirstName, activeAccount]);
 
@@ -103,7 +108,6 @@ export default function BulkImport() {
     if (!activeAccount || !selectedList) return;
     const selectedListName = lists.find(a => a.listId === selectedList)?.name || 'Unknown List';
     
-    // Pass the new defaultFirstName to the job engine
     startJob(activeAccount.id, selectedList, selectedListName, importData, delay, defaultFirstName);
     
     toast({ title: "Job Started", description: "Bulk import is running in background." });
@@ -131,7 +135,6 @@ export default function BulkImport() {
             <CardTitle>Import Configuration</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-             {/* Changed grid to have 3 items or specific layout */}
              <div className="space-y-4">
                 <div>
                     <Label htmlFor="list">Select List</Label>
@@ -205,7 +208,10 @@ export default function BulkImport() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="relative">
-              <Label htmlFor="emails">Paste data manually (email,firstname,lastname):</Label>
+              <div className="flex justify-between items-center mb-2">
+                  <Label htmlFor="emails">Paste data manually (email,firstname,lastname):</Label>
+                  <span className="text-xs font-medium text-muted-foreground">Detected: {emailCount}</span>
+              </div>
               <Textarea
                 id="emails"
                 placeholder="test@example.com,John,Doe&#x0a;another@example.com"
@@ -221,7 +227,7 @@ export default function BulkImport() {
                 <Button 
                     onClick={handleStartImport} 
                     className="flex-1"
-                    disabled={!activeAccount || !selectedList}
+                    disabled={!activeAccount || !selectedList || emailCount === 0}
                 >
                     <Play className="w-4 h-4 mr-2" />
                     Start Import

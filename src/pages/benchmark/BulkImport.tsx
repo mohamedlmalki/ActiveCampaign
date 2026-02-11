@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Upload, Play, FileJson2, Pause, Play as PlayIcon, XCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -39,6 +39,11 @@ export default function BulkImport() {
   const [importData, setImportData] = useState("");
   const [delay, setDelay] = useState(1);
   const [defaultFirstName, setDefaultFirstName] = useState("");
+
+  // --- EMAIL COUNTER ---
+  const emailCount = useMemo(() => {
+    return importData.split('\n').filter(line => line.trim() !== '').length;
+  }, [importData]);
 
   // --- AUTO-LOAD DRAFT (Benchmark Specific Keys) ---
   useEffect(() => {
@@ -201,7 +206,10 @@ export default function BulkImport() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="relative">
-              <Label htmlFor="emails">Paste data manually (email,firstname,lastname):</Label>
+              <div className="flex justify-between items-center mb-2">
+                  <Label htmlFor="emails">Paste data manually (email,firstname,lastname):</Label>
+                  <span className="text-xs font-medium text-muted-foreground">Detected: {emailCount}</span>
+              </div>
               <Textarea
                 id="emails"
                 placeholder="test@example.com,John,Doe&#x0a;another@example.com,Jane,Smith"
@@ -217,7 +225,7 @@ export default function BulkImport() {
                 <Button 
                     onClick={handleStartImport} 
                     className="flex-1"
-                    disabled={!activeAccount || !selectedList}
+                    disabled={!activeAccount || !selectedList || emailCount === 0}
                 >
                     <Play className="w-4 h-4 mr-2" />
                     Start Import
@@ -277,7 +285,6 @@ export default function BulkImport() {
                                             <span className="sr-only">View Details</span>
                                         </Button>
                                     </DialogTrigger>
-                                    {/* --- FLEXIBLE POPUP FIX --- */}
                                     <DialogContent className="max-w-[800px] w-full max-h-[80vh] flex flex-col">
                                         <DialogHeader>
                                             <DialogTitle>Import Details for {result.email}</DialogTitle>
@@ -288,7 +295,6 @@ export default function BulkImport() {
                                             </pre>
                                         </div>
                                     </DialogContent>
-                                    {/* --------------------------- */}
                                 </Dialog>
                             </TableCell>
                           </TableRow>

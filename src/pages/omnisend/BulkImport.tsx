@@ -1,178 +1,400 @@
-import React, { useState, useRef } from "react";
-import { useAccount } from "@/contexts/AccountContext";
-import { useJobs } from "@/contexts/JobContext";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Slider } from "@/components/ui/slider";
-import { Textarea } from "@/components/ui/textarea";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Upload, Play, AlertCircle, FileText } from "lucide-react";
-import { toast } from "@/hooks/use-toast";
+import React, { useState, useEffect, useMemo } from 'react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
+import { Upload, Play, Pause, Square, Clock, Terminal, Download, CheckCircle, XCircle, Info, FileJson } from 'lucide-react';
+import { toast } from '@/hooks/use-toast';
+import { useAccount } from '@/contexts/AccountContext';
+import { useJobs } from '@/contexts/JobContext';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Progress } from '@/components/ui/progress';
+import { Separator } from '@/components/ui/separator';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
+
+// Types
+type FilterStatus = 'all' | 'success' | 'failed';
+
+// Helper to format time
+const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+};
 
 const OmnisendBulkImport = () => {
-  const { activeAccount } = useAccount();
-  const { startJob } = useJobs();
+    const { activeAccount: selectedAccount } = useAccount();
+    const { jobs, startJob, pauseJob, resumeJob, cancelJob } = useJobs();
 
-  const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<string>("");
-  const [delay, setDelay] = useState<number>(1);
-  const [isReading, setIsReading] = useState(false);
-
-  // File Handler
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const selectedFile = e.target.files[0];
-      setFile(selectedFile);
-      setIsReading(true);
-
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const text = event.target?.result as string;
-        setPreview(text);
-        setIsReading(false);
-        toast({ title: "File loaded", description: `Loaded ${selectedFile.name}` });
-      };
-      reader.onerror = () => {
-        toast({ title: "Error", description: "Failed to read file", variant: "destructive" });
-        setIsReading(false);
-      };
-      reader.readAsText(selectedFile);
-    }
-  };
-
-  // Start Job Handler
-  const handleStartImport = () => {
-    if (!activeAccount) return;
-    if (!preview) {
-      toast({ title: "No data", description: "Please upload a CSV file first.", variant: "destructive" });
-      return;
-    }
-
-    // Omnisend doesn't strictly use List IDs for creation, so we pass a generic ID.
-    // The name of the list helps you identify the job in the dashboard.
-    const jobListId = "omnisend-import-generic"; 
-    const jobListName = `Omnisend Import - ${file?.name || 'Raw Data'}`;
-
-    // Calls the Unified Job Engine in Fusion Manager
-    startJob(activeAccount.id, jobListId, jobListName, preview, delay);
+    // Local State
+    const [emailListInput, setEmailListInput] = useState('');
+    const [delayInput, setDelayInput] = useState(1);
+    const [filter, setFilter] = useState<FilterStatus>('all');
     
-    toast({ 
-      title: "Job Started", 
-      description: `Importing contacts to ${activeAccount.name}...` 
-    });
-  };
+    // Details Dialog State
+    const [viewDetails, setViewDetails] = useState<any | null>(null);
+    const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+    
+    // Ticker
+    const [, setTicker] = useState(0);
 
-  return (
-    <div className="space-y-6 animate-in fade-in duration-500">
-      <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-bold tracking-tight">Omnisend Bulk Import</h1>
-        <p className="text-muted-foreground">
-          Upload a CSV file to import contacts directly into your Omnisend store.
-        </p>
-      </div>
+    // Job Logic
+    const currentJob = useMemo(() => {
+        if (!selectedAccount) return null;
+        return Object.values(jobs).find(j => j.accountId === selectedAccount.id) || null;
+    }, [jobs, selectedAccount]);
 
-      <div className="grid gap-6 md:grid-cols-2">
-        {/* LEFT COLUMN: Configuration */}
-        <div className="space-y-6">
-          
-          {/* File Upload Card */}
-          <Card>
-            <CardHeader>
-              <CardTitle>1. Select Source File</CardTitle>
-              <CardDescription>Supported format: CSV (email, firstName, lastName)</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid w-full max-w-sm items-center gap-1.5">
-                <Label htmlFor="csv-file">Contacts File</Label>
-                <div className="flex gap-2">
-                    <Input 
-                        id="csv-file" 
-                        type="file" 
-                        accept=".csv,.txt" 
-                        onChange={handleFileChange} 
-                        className="cursor-pointer"
-                    />
+    const isRunning = currentJob?.status === 'running';
+    const isPaused = currentJob?.status === 'paused';
+    const isWorking = isRunning || isPaused;
+
+    // --- 1. PERSISTENCE LOGIC ---
+    // Load saved state on account switch or mount
+    useEffect(() => {
+        if (selectedAccount) {
+            // Restore Delay if job exists
+            if (currentJob) { 
+                setDelayInput(currentJob.delay);
+            }
+            
+            // Always try to restore draft text from Session Storage
+            const savedDraft = sessionStorage.getItem(`omnisend_draft_${selectedAccount.id}`);
+            if (savedDraft) {
+                setEmailListInput(savedDraft);
+            } else {
+                setEmailListInput('');
+            }
+        } else {
+            setEmailListInput('');
+        }
+    }, [selectedAccount, currentJob]);
+
+    // Timer
+    useEffect(() => {
+        let timer: NodeJS.Timeout | undefined;
+        if (isRunning) {
+            timer = setInterval(() => setTicker(prev => prev + 1), 1000);
+        }
+        return () => clearInterval(timer);
+    }, [isRunning]);
+    
+    const elapsedTime = currentJob ? currentJob.elapsedTime : 0;
+    const emailCount = useMemo(() => emailListInput.split(/[\n,;]+/).filter(Boolean).length, [emailListInput]);
+
+    // Handlers
+    const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        const newValue = e.target.value;
+        setEmailListInput(newValue);
+        
+        // --- 2. SAVE ON TYPE ---
+        if (selectedAccount) {
+            sessionStorage.setItem(`omnisend_draft_${selectedAccount.id}`, newValue);
+        }
+    };
+    
+    const handleStartImport = () => {
+        if (!selectedAccount) {
+            toast({ title: 'Error', description: 'Please select an account first.', variant: "destructive" });
+            return;
+        }
+        if (!emailListInput.trim()) {
+            toast({ title: 'Error', description: 'Please provide at least one email address.', variant: "destructive" });
+            return;
+        }
+        
+        startJob(selectedAccount.id, 'omnisend-direct', 'Omnisend Import', emailListInput, delayInput);
+        
+        // Note: We do NOT clear the draft from session storage here.
+        // This ensures that if you navigate away while the job is running and come back,
+        // the text area is still populated (since JobContext doesn't store the raw text).
+        
+        toast({ title: 'Job Started', description: `Starting import for ${selectedAccount.name}...` });
+    };
+
+    const handleStopJob = () => {
+        if (!currentJob) return;
+        if (currentJob.status === 'paused') {
+            resumeJob(currentJob.id);
+        }
+        cancelJob(currentJob.id);
+        toast({ title: 'Job Stopped', description: `Import has been stopped.` });
+    };
+
+    const handleExport = () => {
+        const emailsToExport = filteredResults.map(result => result.email).join('\n');
+        if (!emailsToExport) {
+            toast({ title: 'Export Failed', description: "No emails to export.", variant: "destructive" });
+            return;
+        }
+        const blob = new Blob([emailsToExport], { type: 'text/plain;charset=utf-8' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `omnisend_export_${selectedAccount?.name}_${filter}.txt`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
+    // Filter Logic
+    const filteredResults = useMemo(() => {
+        if (!currentJob) return [];
+        if (filter === 'all') return currentJob.results;
+        return currentJob.results.filter(result => result.status === filter);
+    }, [currentJob, filter]);
+
+    const { successCount, errorCount } = useMemo(() => {
+        if (!currentJob) return { successCount: 0, errorCount: 0 };
+        return {
+            successCount: currentJob.results.filter(r => r.status === 'success').length,
+            errorCount: currentJob.results.filter(r => r.status === 'failed').length,
+        };
+    }, [currentJob]);
+
+    const progress = currentJob && currentJob.totalContacts > 0 ? (currentJob.progress) : 0;
+
+    return (
+        <div className="p-6 max-w-[1600px] mx-auto animate-in fade-in duration-500 h-[calc(100vh-60px)] flex flex-col">
+            {/* Header */}
+            <div className="flex items-center gap-3 mb-6 shrink-0">
+                <div className="p-2 bg-primary/10 rounded-lg">
+                    <Upload className="h-6 w-6 text-primary" />
                 </div>
-              </div>
+                <div>
+                    <h1 className="text-2xl font-bold tracking-tight">Omnisend Bulk Import</h1>
+                    <p className="text-sm text-muted-foreground">Manage your subscriber imports directly.</p>
+                </div>
+            </div>
 
-              {file && (
-                <Alert className="bg-blue-50 text-blue-900 border-blue-200">
-                  <FileText className="h-4 w-4" />
-                  <AlertTitle>File Selected</AlertTitle>
-                  <AlertDescription>
-                    {file.name} ({(file.size / 1024).toFixed(2)} KB)
-                  </AlertDescription>
+            {!selectedAccount && (
+                <Alert variant="destructive" className="mb-6 shrink-0">
+                    <Terminal className="h-4 w-4" />
+                    <AlertTitle>No Account Selected</AlertTitle>
+                    <AlertDescription>Please select an account from the sidebar.</AlertDescription>
                 </Alert>
-              )}
-            </CardContent>
-          </Card>
+            )}
 
-          {/* Settings Card */}
-          <Card>
-            <CardHeader>
-              <CardTitle>2. Configure Settings</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="space-y-4">
-                <div className="flex justify-between">
-                  <Label>Import Delay (seconds)</Label>
-                  <span className="text-sm font-medium text-muted-foreground">{delay}s</span>
-                </div>
-                <Slider
-                  value={[delay]}
-                  min={1}
-                  max={10}
-                  step={1}
-                  onValueChange={(vals) => setDelay(vals[0])}
-                />
-                <p className="text-xs text-muted-foreground">
-                   Higher delay helps avoid Omnisend API rate limits (recommended: 1-2s).
-                </p>
-              </div>
+            {/* MAIN TWO-COLUMN LAYOUT */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 min-h-0">
+                
+                {/* LEFT COLUMN: Input & Configuration */}
+                <Card className="flex flex-col h-full overflow-hidden">
+                    <CardHeader className="pb-3 border-b bg-muted/20">
+                        <CardTitle className="text-base font-semibold flex items-center gap-2">
+                            <Terminal className="h-4 w-4" /> Email List
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent className="flex-1 flex flex-col p-4 space-y-4 overflow-hidden">
+                        
+                        {/* Textarea Section */}
+                        <div className="flex-1 flex flex-col min-h-0">
+                            <Label htmlFor="emailList" className="mb-2 block text-xs uppercase tracking-wider text-muted-foreground">
+                                Paste Emails (CSV or New Line)
+                            </Label>
+                            <Textarea
+                                id="emailList"
+                                placeholder="user1@example.com&#10;user2@example.com,John,Doe"
+                                className="flex-1 resize-none font-mono text-sm leading-relaxed"
+                                value={emailListInput}
+                                onChange={handleTextareaChange}
+                                disabled={isWorking}
+                            />
+                            <div className="mt-2 flex justify-between text-xs text-muted-foreground">
+                                <span>Detected: <strong className="text-foreground">{emailCount}</strong></span>
+                                <span>Supported: Email, FirstName, LastName</span>
+                            </div>
+                        </div>
 
-              <Button 
-                onClick={handleStartImport} 
-                disabled={!file || isReading} 
-                className="w-full"
-                size="lg"
-              >
-                <Play className="mr-2 h-4 w-4" />
-                Start Import Process
-              </Button>
-            </CardContent>
-          </Card>
+                        <Separator />
+
+                        {/* Settings Section */}
+                        <div className="space-y-4 shrink-0">
+                            <div>
+                                <div className="flex justify-between mb-2">
+                                    <Label className="text-xs uppercase tracking-wider text-muted-foreground">Request Delay</Label>
+                                    <span className="text-xs font-mono bg-muted px-2 rounded">{delayInput}s</span>
+                                </div>
+                                <div className="flex items-center gap-4">
+                                    <Input
+                                        type="number"
+                                        min="0.1"
+                                        step="0.1"
+                                        value={delayInput}
+                                        onChange={(e) => setDelayInput(Math.max(0, parseFloat(e.target.value)))}
+                                        className="w-20"
+                                        disabled={isWorking}
+                                    />
+                                    <p className="text-xs text-muted-foreground">
+                                        Adjust delay to avoid API rate limits.
+                                    </p>
+                                </div>
+                            </div>
+
+                            {/* Controls */}
+                            <div className="grid grid-cols-2 gap-3 pt-2">
+                                <Button 
+                                    onClick={handleStartImport} 
+                                    disabled={!selectedAccount || isWorking} 
+                                    className="w-full"
+                                >
+                                    <Play className="h-4 w-4 mr-2" /> Start Import
+                                </Button>
+                                
+                                {isWorking ? (
+                                    <div className="flex gap-2">
+                                        <Button 
+                                            onClick={() => isPaused ? resumeJob(currentJob!.id) : pauseJob(currentJob!.id)} 
+                                            variant="secondary" 
+                                            className="flex-1"
+                                        >
+                                            <Clock className="h-4 w-4 mr-2" /> {isPaused ? 'Resume' : 'Pause'}
+                                        </Button>
+                                        <Button 
+                                            onClick={handleStopJob} 
+                                            variant="destructive"
+                                            size="icon"
+                                        >
+                                            <Square className="h-4 w-4" />
+                                        </Button>
+                                    </div>
+                                ) : (
+                                    <Button variant="secondary" disabled className="w-full opacity-50 cursor-not-allowed">
+                                        <Clock className="h-4 w-4 mr-2" /> Pause / Stop
+                                    </Button>
+                                )}
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
+
+                {/* RIGHT COLUMN: Results & Table */}
+                <Card className="flex flex-col h-full overflow-hidden border-l-4 border-l-primary/20">
+                    <CardHeader className="pb-3 border-b bg-muted/20 flex flex-row items-center justify-between space-y-0">
+                        <CardTitle className="text-base font-semibold flex items-center gap-2">
+                            <FileJson className="h-4 w-4" /> Import Results
+                        </CardTitle>
+                        <div className="flex items-center gap-2">
+                            <ToggleGroup type="single" value={filter} onValueChange={(v) => v && setFilter(v as FilterStatus)} size="sm" className="bg-background border rounded-md">
+                                <ToggleGroupItem value="all" className="h-7 text-xs px-2">All</ToggleGroupItem>
+                                <ToggleGroupItem value="success" className="h-7 text-xs px-2 text-green-600">Success</ToggleGroupItem>
+                                <ToggleGroupItem value="failed" className="h-7 text-xs px-2 text-red-600">Failed</ToggleGroupItem>
+                            </ToggleGroup>
+                            <Button variant="outline" size="icon" className="h-8 w-8" onClick={handleExport}>
+                                <Download className="h-3.5 w-3.5" />
+                            </Button>
+                        </div>
+                    </CardHeader>
+                    
+                    <CardContent className="flex-1 flex flex-col p-0 overflow-hidden">
+                        
+                        {/* Stats Dashboard */}
+                        <div className="grid grid-cols-3 divide-x border-b bg-muted/10">
+                            <div className="p-3 text-center">
+                                <div className="text-[10px] uppercase text-muted-foreground font-bold mb-1">Time Elapsed</div>
+                                <div className="text-lg font-mono font-medium">{formatTime(elapsedTime)}</div>
+                            </div>
+                            <div className="p-3 text-center">
+                                <div className="text-[10px] uppercase text-muted-foreground font-bold mb-1">Success</div>
+                                <div className="text-lg font-bold text-green-600">{successCount}</div>
+                            </div>
+                            <div className="p-3 text-center">
+                                <div className="text-[10px] uppercase text-muted-foreground font-bold mb-1">Failed</div>
+                                <div className="text-lg font-bold text-red-600">{errorCount}</div>
+                            </div>
+                        </div>
+
+                        {/* Progress Bar */}
+                        <div className="px-4 py-3 border-b">
+                            <div className="flex justify-between text-xs mb-2">
+                                <span className="text-muted-foreground">
+                                    Progress: <span className="text-foreground font-medium">{currentJob?.results.length || 0} / {currentJob?.totalContacts || 0}</span>
+                                </span>
+                                {isPaused && <Badge variant="outline" className="text-yellow-600 border-yellow-200 h-5 px-1">Paused</Badge>}
+                            </div>
+                            <Progress value={progress} className="h-1.5" />
+                        </div>
+
+                        {/* Results Table */}
+                        <div className="flex-1 overflow-auto bg-slate-50/50">
+                            <Table>
+                                <TableHeader className="bg-background sticky top-0 z-10 shadow-sm">
+                                    <TableRow className="h-9 hover:bg-background">
+                                        <TableHead className="w-[50px] text-xs">#</TableHead>
+                                        <TableHead className="text-xs">Email</TableHead>
+                                        <TableHead className="w-[100px] text-xs">Status</TableHead>
+                                        <TableHead className="w-[60px] text-xs text-right">Info</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {filteredResults.length > 0 ? filteredResults.map((result) => (
+                                        <TableRow key={result.index} className="h-9">
+                                            <TableCell className="text-xs font-mono text-muted-foreground py-1">{result.index}</TableCell>
+                                            <TableCell className="text-xs font-medium py-1">{result.email}</TableCell>
+                                            <TableCell className="py-1">
+                                                {result.status === 'success' ? (
+                                                    <Badge variant="outline" className="text-[10px] bg-green-50 text-green-700 border-green-200 h-5 px-1.5 gap-1">
+                                                        <CheckCircle className="h-2.5 w-2.5" /> OK
+                                                    </Badge>
+                                                ) : (
+                                                    <Badge variant="outline" className="text-[10px] bg-red-50 text-red-700 border-red-200 h-5 px-1.5 gap-1">
+                                                        <XCircle className="h-2.5 w-2.5" /> Fail
+                                                    </Badge>
+                                                )}
+                                            </TableCell>
+                                            <TableCell className="text-right py-1">
+                                                <Button 
+                                                    variant="ghost" 
+                                                    size="icon" 
+                                                    className="h-6 w-6 hover:bg-primary/10 hover:text-primary"
+                                                    onClick={() => { setViewDetails(result); setIsDetailsOpen(true); }}
+                                                >
+                                                    <Info className="h-3.5 w-3.5" />
+                                                </Button>
+                                            </TableCell>
+                                        </TableRow>
+                                    )) : (
+                                        <TableRow>
+                                            <TableCell colSpan={4} className="h-32 text-center text-muted-foreground text-xs">
+                                                {isWorking ? "Waiting for results..." : "No logs available."}
+                                            </TableCell>
+                                        </TableRow>
+                                    )}
+                                </TableBody>
+                            </Table>
+                        </div>
+                    </CardContent>
+                </Card>
+            </div>
+
+            {/* Details Dialog */}
+            <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <FileJson className="h-5 w-5 text-primary" /> Response Details
+                        </DialogTitle>
+                        <DialogDescription>
+                            API Response for <b>{viewDetails?.email}</b>
+                        </DialogDescription>
+                    </DialogHeader>
+                    <ScrollArea className="h-[300px] w-full rounded-md border p-4 bg-slate-950 text-slate-50">
+                        <pre className="text-xs font-mono whitespace-pre-wrap break-all">
+                            {viewDetails?.data ? (
+                                (() => {
+                                    try { return JSON.stringify(JSON.parse(viewDetails.data), null, 2); } 
+                                    catch (e) { return viewDetails.data; }
+                                })()
+                            ) : "No data available."}
+                        </pre>
+                    </ScrollArea>
+                </DialogContent>
+            </Dialog>
         </div>
-
-        {/* RIGHT COLUMN: Preview */}
-        <div className="space-y-6">
-          <Card className="h-full flex flex-col">
-            <CardHeader>
-              <CardTitle>Data Preview</CardTitle>
-              <CardDescription>
-                 Review the raw data before starting. Ensure "Email" is the first column.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex-1 min-h-[300px]">
-              {preview ? (
-                <Textarea 
-                  value={preview} 
-                  readOnly 
-                  className="h-full font-mono text-xs resize-none bg-muted/50" 
-                />
-              ) : (
-                <div className="h-full flex flex-col items-center justify-center text-muted-foreground border-2 border-dashed rounded-lg">
-                  <Upload className="h-10 w-10 mb-2 opacity-20" />
-                  <p>No file content loaded</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-    </div>
-  );
+    );
 };
 
 export default OmnisendBulkImport;
