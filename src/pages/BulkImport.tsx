@@ -1,49 +1,30 @@
-import { useEffect } from "react";
 import { useAccount } from "@/contexts/AccountContext";
-import ACBulkImport from "./activecampaign/BulkImport";
-import BMBulkImport from "./benchmark/BulkImport";
-import OmnisendBulkImport from "./omnisend/BulkImport"; 
+import ActiveCampaignImport from "./activecampaign/BulkImport";
+import BenchmarkImport from "./benchmark/BulkImport";
+import OmnisendImport from "./omnisend/BulkImport";
+import ButtondownImport from "./buttondown/BulkImport"; // <--- NEW IMPORT
 
-const BulkImport = () => {
+export default function BulkImport() {
   const { activeAccount } = useAccount();
-
-  useEffect(() => {
-    if (activeAccount) {
-      console.log(`[BulkImport] Switching to: ${activeAccount.name} (${activeAccount.provider})`);
-    }
-  }, [activeAccount]);
 
   if (!activeAccount) {
     return (
-      <div className="flex flex-col items-center justify-center h-[50vh] text-muted-foreground">
-        <p>Please select an account from the sidebar to get started.</p>
+      <div className="flex items-center justify-center h-full text-muted-foreground">
+        Please select an account from the sidebar.
       </div>
     );
   }
 
-  // --- TRAFFIC COP LOGIC ---
-  // Normalize the provider to handle case sensitivity or accidental whitespace
-  const provider = (activeAccount.provider || "").toLowerCase().trim();
-
-  if (provider === 'activecampaign') {
-    return <ACBulkImport />;
-  } 
-  
-  if (provider === 'benchmark') {
-     return <BMBulkImport />;
+  switch (activeAccount.provider) {
+    case 'activecampaign':
+      return <ActiveCampaignImport />;
+    case 'benchmark':
+      return <BenchmarkImport />;
+    case 'omnisend':
+      return <OmnisendImport />;
+    case 'buttondown':
+      return <ButtondownImport />; // <--- NEW CASE
+    default:
+      return <div>Unknown provider: {activeAccount.provider}</div>;
   }
-  
-  if (provider === 'omnisend') {
-     return <OmnisendBulkImport />;
-  }
-
-  return (
-    <div className="flex flex-col items-center justify-center h-[50vh] text-red-500 gap-2">
-      <h3 className="text-lg font-bold">Configuration Error</h3>
-      <p>Unknown account provider: <code>"{activeAccount.provider}"</code></p>
-      <p className="text-sm text-muted-foreground">Expected: activecampaign, benchmark, or omnisend</p>
-    </div>
-  );
-};
-
-export default BulkImport;
+}

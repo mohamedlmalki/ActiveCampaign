@@ -1,29 +1,33 @@
 import { useAccount } from "@/contexts/AccountContext";
-import ACUserManagement from "./activecampaign/UserManagement";
-import BMUserManagement from "./benchmark/UserManagement"; // <--- IMPORT
+import ActiveCampaignUsers from "./activecampaign/UserManagement";
+import BenchmarkUsers from "./benchmark/UserManagement";
+import ButtondownUsers from "./buttondown/UserManagement"; // <--- NEW IMPORT
 
-const UserManagement = () => {
+export default function UserManagement() {
   const { activeAccount } = useAccount();
 
   if (!activeAccount) {
     return (
-        <div className="flex flex-col items-center justify-center h-[50vh] text-muted-foreground">
-            <p>Please select an account from the sidebar.</p>
-        </div>
+      <div className="flex items-center justify-center h-full text-muted-foreground">
+        Please select an account from the sidebar.
+      </div>
     );
   }
 
-  // 1. ActiveCampaign
-  if (activeAccount.provider === 'activecampaign') {
-    return <ACUserManagement />;
-  } 
-  
-  // 2. Benchmark (NEW)
-  if (activeAccount.provider === 'benchmark') {
-     return <BMUserManagement />;
+  switch (activeAccount.provider) {
+    case 'activecampaign':
+      return <ActiveCampaignUsers />;
+    case 'benchmark':
+      return <BenchmarkUsers />;
+    case 'buttondown':
+      return <ButtondownUsers />; // <--- NEW CASE
+    case 'omnisend':
+      return (
+        <div className="p-8 text-center text-muted-foreground">
+          User Management is not supported for Omnisend yet.
+        </div>
+      );
+    default:
+      return <div>Unknown provider: {activeAccount.provider}</div>;
   }
-
-  return <div>Unknown account provider</div>;
-};
-
-export default UserManagement;
+}

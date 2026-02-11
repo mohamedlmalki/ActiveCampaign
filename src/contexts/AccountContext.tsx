@@ -4,7 +4,7 @@ import React, { createContext, useState, useContext, useEffect, ReactNode, useCa
 export interface Account {
   id: string;
   name: string;
-  provider: 'activecampaign' | 'benchmark' | 'omnisend'; // <--- UPDATED UNION TYPE
+  provider: 'activecampaign' | 'benchmark' | 'omnisend' | 'buttondown'; // <--- ADDED BUTTONDOWN
   apiKey: string;
   apiUrl?: string; // Optional (Required for AC)
   status?: "unknown" | "checking" | "connected" | "failed";
@@ -45,7 +45,10 @@ export const AccountProvider = ({ children }: { children: ReactNode }) => {
             endpoint = '/api/benchmark/check-status';
             body = { apiKey: account.apiKey };
         } else if (account.provider === 'omnisend') {
-            endpoint = '/api/omnisend/check-status'; // <--- NEW CASE
+            endpoint = '/api/omnisend/check-status';
+            body = { apiKey: account.apiKey };
+        } else if (account.provider === 'buttondown') {
+            endpoint = '/api/buttondown/check-status'; // <--- NEW CASE
             body = { apiKey: account.apiKey };
         } else {
             // Default to ActiveCampaign

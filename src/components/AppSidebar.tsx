@@ -12,7 +12,8 @@ import {
   ChevronsUpDown,
   Check,
   LogOut,
-  Save // <--- ADDED THIS IMPORT
+  Save,
+  Newspaper // <--- ADDED ICON
 } from "lucide-react"
 
 import {
@@ -64,7 +65,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const [editingAccount, setEditingAccount] = React.useState<Account | null>(null)
 
   // --- PLATFORM SWITCHING LOGIC ---
-  const handlePlatformClick = (provider: 'activecampaign' | 'benchmark' | 'omnisend', targetUrl: string) => {
+  const handlePlatformClick = (provider: 'activecampaign' | 'benchmark' | 'omnisend' | 'buttondown', targetUrl: string) => {
     // 1. Check if we are already on this provider
     if (activeAccount?.provider === provider) {
       return;
@@ -168,6 +169,45 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
         <div className="px-4 py-2"><div className="h-[1px] bg-sidebar-border" /></div>
 
+        {/* --- BUTTONDOWN GROUP (NEW) --- */}
+        <SidebarGroup>
+          <SidebarGroupLabel>Buttondown</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+               <SidebarItem 
+                title="Bulk Import" 
+                url="/" 
+                icon={Upload} 
+                isActive={location.pathname === "/" && activeAccount?.provider === 'buttondown'}
+                onClick={() => handlePlatformClick('buttondown', '/')}
+              />
+              <SidebarItem 
+                title="Subscribers" 
+                url="/users" 
+                icon={Users} 
+                isActive={location.pathname === "/users" && activeAccount?.provider === 'buttondown'}
+                onClick={() => handlePlatformClick('buttondown', '/users')}
+              />
+              <SidebarItem 
+                title="Emails / Analytics" 
+                url="/emails" 
+                icon={BarChart3} 
+                isActive={location.pathname === "/emails" && activeAccount?.provider === 'buttondown'}
+                onClick={() => handlePlatformClick('buttondown', '/emails')}
+              />
+              <SidebarItem 
+                title="Send Email" 
+                url="/send" 
+                icon={Send} 
+                isActive={location.pathname === "/send" && activeAccount?.provider === 'buttondown'}
+                onClick={() => handlePlatformClick('buttondown', '/send')}
+              />
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <div className="px-4 py-2"><div className="h-[1px] bg-sidebar-border" /></div>
+
         {/* --- OMNISEND GROUP --- */}
         <SidebarGroup>
           <SidebarGroupLabel>Omnisend</SidebarGroupLabel>
@@ -237,6 +277,7 @@ function AccountSwitcher({ accounts, activeAccount, setActiveAccount, onAdd, onE
     const getIcon = (provider?: string) => {
         if (provider === 'benchmark') return <BarChart3 className="size-4" />;
         if (provider === 'omnisend') return <Send className="size-4" />;
+        if (provider === 'buttondown') return <Newspaper className="size-4" />; // <--- BUTTONDOWN ICON
         return <Activity className="size-4" />;
     }
 
@@ -349,12 +390,13 @@ function AddAccountDialog({ open, onOpenChange, onAdd }: any) {
                                 <SelectItem value="activecampaign">ActiveCampaign</SelectItem>
                                 <SelectItem value="benchmark">Benchmark Email</SelectItem>
                                 <SelectItem value="omnisend">Omnisend</SelectItem>
+                                <SelectItem value="buttondown">Buttondown</SelectItem> {/* <--- ADDED BUTTONDOWN */}
                             </SelectContent>
                         </Select>
                     </div>
                     <div className="space-y-2">
                         <Label>Account Name</Label>
-                        <Input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. My Store" required />
+                        <Input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. My Newsletter" required />
                     </div>
                     <div className="space-y-2">
                         <Label>API Key / Token</Label>

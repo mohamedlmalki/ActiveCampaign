@@ -5,40 +5,48 @@ import { Button } from "@/components/ui/button";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
-import { useJobs } from "@/contexts/JobContext"; 
+import { useJob } from "@/contexts/JobContext"; // <--- CHANGED FROM useJobs TO useJob
 import { useAccount } from "@/contexts/AccountContext";
 
 export function CampaignStatusSelect() {
-    const { jobs } = useJobs(); 
-    const { accounts, activeAccount, setActiveAccount } = useAccount(); // Added setActiveAccount
+    const { jobs } = useJob(); // <--- CHANGED FROM useJobs TO useJob
+    const { accounts, activeAccount, setActiveAccount } = useAccount();
     const [open, setOpen] = useState(false);
     const [selectedJobId, setSelectedJobId] = useState<string>("");
 
-    // Convert jobs object to array and reverse (newest first)
-    const jobList = Object.values(jobs).reverse();
+    // Convert jobs array (it is already an array in the new context)
+    // The previous context might have had it as an object, but the new one is an array.
+    // So we just reverse it directly.
+    const jobList = [...jobs].reverse();
 
     // Determine the "Active" job to show on the closed button
-    const activeRunningJob = jobList.find(j => j.status === 'running');
+    const activeRunningJob = jobList.find(j => j.status === 'processing'); // Note: Context uses 'processing', not 'running'
     const selectedJob = jobList.find((j) => j.id === selectedJobId) || activeRunningJob || jobList[0];
 
     // Helper: Find Full Account Object
-    const getAccount = (accountId: string) => {
-        return accounts.find(a => a.id === accountId);
+    // Note: The new Job interface doesn't strictly have accountId or listName based on the context I gave you.
+    // You might need to update the addJob call in BulkImport to include these in 'data' or extends the Job interface.
+    // For now, let's assume the job object has these extended properties or we handle missing data gracefully.
+    
+    // safe access since custom properties might be in job.data or just untyped on the job object
+    const getAccount = (job: any) => {
+        // Fallback: try to find account by ID if stored, or just return undefined
+        return accounts.find(a => a.id === job.accountId);
     };
 
     // Helper: Calculate Stats
-    const getJobStats = (job: typeof jobList[0]) => {
-        const processed = job.results.length;
-        const failures = job.results.filter(r => r.status === 'failed').length;
+    const getJobStats = (job: any) => {
+        const processed = job.processedItems || 0;
+        const failures = job.failedItems || 0;
         return { processed, failures };
     };
 
     const getStatusColor = (status: string) => {
         switch (status) {
             case 'completed': return "text-green-600";
-            case 'running': return "text-blue-600";
+            case 'processing': return "text-blue-600"; // Context uses 'processing'
             case 'paused': return "text-yellow-600";
-            case 'cancelled': return "text-red-500";
+            case 'failed': return "text-red-500";
             default: return "text-muted-foreground";
         }
     };
@@ -54,9 +62,16 @@ export function CampaignStatusSelect() {
     }
 
     const currentStats = getJobStats(selectedJob);
-    const currentAccount = getAccount(selectedJob.accountId);
-    const currentAccountName = currentAccount ? currentAccount.name : "Unknown";
+    // We cast to 'any' here because your previous JobContext might have had specific fields 
+    // (accountId, listName) that the generic one I gave you doesn't enforce, 
+    // but JS runtime will still have them if you passed them.
+    const jobAny = selectedJob as any; 
+    
+    const currentAccount = getAccount(jobAny);
+    const currentAccountName = currentAccount ? currentAccount.name : (jobAny.title || "Unknown");
     const currentProvider = currentAccount ? currentAccount.provider : "";
+    const listName = jobAny.listName || "Bulk Import";
+    const totalItems = selectedJob.totalItems || 0;
 
     return (
         <Popover open={open} onOpenChange={setOpen}>
@@ -73,25 +88,26 @@ export function CampaignStatusSelect() {
                                 {currentProvider && (
                                     <Badge variant="outline" className={cn("text-[10px] h-4 px-1", 
                                         currentProvider === 'activecampaign' ? "border-blue-200 text-blue-600 bg-blue-50" : 
+                                        currentProvider === 'buttondown' ? "border-indigo-200 text-indigo-600 bg-indigo-50" :
                                         "border-orange-200 text-orange-600 bg-orange-50"
                                     )}>
-                                        {currentProvider === 'activecampaign' ? 'AC' : 'BM'}
+                                        {currentProvider === 'activecampaign' ? 'AC' : currentProvider === 'buttondown' ? 'BD' : 'BM'}
                                     </Badge>
                                 )}
                             </div>
                             <span className="text-xs text-muted-foreground truncate max-w-[100px]">
-                                {selectedJob.listName}
+                                {listName}
                             </span>
                         </div>
                         
                         {/* Bottom Line: Counters & Status */}
                         <div className="flex items-center gap-2 text-xs w-full">
                             <span className="font-mono font-medium text-foreground bg-muted px-1 rounded">
-                                {currentStats.processed}/{selectedJob.totalContacts}
+                                {currentStats.processed}/{totalItems}
                             </span>
                             
                             <span className={cn("capitalize flex items-center gap-1 flex-1", getStatusColor(selectedJob.status))}>
-                                {selectedJob.status === 'running' && <Loader2 className="w-3 h-3 animate-spin" />}
+                                {selectedJob.status === 'processing' && <Loader2 className="w-3 h-3 animate-spin" />}
                                 {selectedJob.status}
                             </span>
 
@@ -109,9 +125,9 @@ export function CampaignStatusSelect() {
                             <div 
                                 className={cn("h-full transition-all duration-300", 
                                     selectedJob.status === 'completed' ? "bg-green-500" : 
-                                    selectedJob.status === 'cancelled' ? "bg-red-300" : "bg-blue-500"
+                                    selectedJob.status === 'failed' ? "bg-red-300" : "bg-blue-500"
                                 )}
-                                style={{ width: `${(currentStats.processed / selectedJob.totalContacts) * 100}%` }}
+                                style={{ width: `${totalItems > 0 ? (currentStats.processed / totalItems) * 100 : 0}%` }}
                             />
                         </div>
                     </div>
@@ -126,21 +142,20 @@ export function CampaignStatusSelect() {
                         <CommandEmpty>No tasks found.</CommandEmpty>
                         <CommandGroup heading="Active Jobs">
                             {jobList.map((job) => {
+                                const jAny = job as any;
                                 const stats = getJobStats(job);
-                                const account = getAccount(job.accountId);
-                                const accountName = account ? account.name : "Unknown";
+                                const account = getAccount(jAny);
+                                const accountName = account ? account.name : (jAny.title || "Unknown");
                                 const provider = account ? account.provider : "";
-                                const isActiveAccount = activeAccount && job.accountId === activeAccount.id;
+                                const isActiveAccount = activeAccount && account && account.id === activeAccount.id;
 
                                 return (
                                     <CommandItem
                                         key={job.id}
-                                        value={`${accountName} ${job.listName} ${provider}`} 
+                                        value={`${accountName} ${jAny.listName} ${provider} ${job.id}`} 
                                         onSelect={() => {
                                             setSelectedJobId(job.id);
-                                            // ---------------------------------------------------------
-                                            // OPTION 2: CLICK TO SWITCH ACCOUNT
-                                            // ---------------------------------------------------------
+                                            // Click to Switch Account
                                             if (account && account.id !== activeAccount?.id) {
                                                 setActiveAccount(account);
                                             }
@@ -158,9 +173,10 @@ export function CampaignStatusSelect() {
                                                 {provider && (
                                                     <Badge variant="outline" className={cn("text-[10px] h-4 px-1", 
                                                         provider === 'activecampaign' ? "border-blue-200 text-blue-600 bg-blue-50" : 
+                                                        provider === 'buttondown' ? "border-indigo-200 text-indigo-600 bg-indigo-50" :
                                                         "border-orange-200 text-orange-600 bg-orange-50"
                                                     )}>
-                                                        {provider === 'activecampaign' ? 'AC' : 'BM'}
+                                                        {provider === 'activecampaign' ? 'AC' : provider === 'buttondown' ? 'BD' : 'BM'}
                                                     </Badge>
                                                 )}
                                             </div>
@@ -171,7 +187,7 @@ export function CampaignStatusSelect() {
                                         <div className="flex justify-between items-center w-full text-xs">
                                             <div className="flex items-center gap-2 text-muted-foreground">
                                                 <span className={cn("font-mono", isActiveAccount ? "text-primary font-bold" : "")}>
-                                                    {stats.processed}/{job.totalContacts}
+                                                    {stats.processed}/{job.totalItems}
                                                 </span>
                                             </div>
 
@@ -191,7 +207,7 @@ export function CampaignStatusSelect() {
                                         <div className="w-full h-0.5 bg-muted mt-2 rounded-full overflow-hidden">
                                             <div 
                                                 className={cn("h-full", getStatusColor(job.status).replace("text-", "bg-"))}
-                                                style={{ width: `${(stats.processed / job.totalContacts) * 100}%` }}
+                                                style={{ width: `${job.totalItems > 0 ? (stats.processed / job.totalItems) * 100 : 0}%` }}
                                             />
                                         </div>
                                     </CommandItem>

@@ -14,12 +14,14 @@ app.use(express.json());
 // --- 1. IMPORT ROUTERS ---
 const activeCampaignRoutes = require('./routes/activecampaign');
 const benchmarkRoutes = require('./routes/benchmark');
-const omnisendRoutes = require('./routes/omnisend'); // <--- NEW IMPORT
+const omnisendRoutes = require('./routes/omnisend');
+const buttondownRoutes = require('./routes/buttondown'); // <--- NEW IMPORT
 
 // --- 2. MOUNT ROUTERS ---
 app.use('/api/activecampaign', activeCampaignRoutes);
 app.use('/api/benchmark', benchmarkRoutes);
-app.use('/api/omnisend', omnisendRoutes); // <--- NEW MOUNT
+app.use('/api/omnisend', omnisendRoutes);
+app.use('/api/buttondown', buttondownRoutes); // <--- NEW MOUNT
 
 
 // --- 3. ACCOUNTS MANAGEMENT ---
@@ -118,7 +120,9 @@ app.post("/api/accounts/check-status", async (req, res) => {
     if (provider === 'benchmark') {
         res.redirect(307, '/api/benchmark/check-status');
     } else if (provider === 'omnisend') {
-        res.redirect(307, '/api/omnisend/check-status'); // <--- NEW REDIRECT
+        res.redirect(307, '/api/omnisend/check-status');
+    } else if (provider === 'buttondown') {
+        res.redirect(307, '/api/buttondown/check-status'); // <--- NEW REDIRECT
     } else {
         res.redirect(307, '/api/activecampaign/check-status');
     }
@@ -136,4 +140,5 @@ app.listen(PORT, () => {
   console.log(`   - ActiveCampaign Routes: /api/activecampaign/*`);
   console.log(`   - Benchmark Routes:      /api/benchmark/*`);
   console.log(`   - Omnisend Routes:       /api/omnisend/*`);
+  console.log(`   - Buttondown Routes:     /api/buttondown/*`);
 });
