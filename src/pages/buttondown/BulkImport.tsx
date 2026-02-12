@@ -1,468 +1,543 @@
-import { useState, useEffect, useMemo } from 'react';
-import { useAccount } from "@/contexts/AccountContext";
-import { useJob } from "@/contexts/JobContext";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import React, { useState, useEffect, useMemo } from 'react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
+import { Upload, Play, Pause, Square, Clock, Terminal, Download, CheckCircle, XCircle, Info, FileJson, Save, RefreshCw } from 'lucide-react';
+import { toast } from '@/hooks/use-toast';
+import { useAccount } from '@/contexts/AccountContext';
+import { useJob } from '@/contexts/JobContext'; 
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Progress } from '@/components/ui/progress';
+import { Separator } from '@/components/ui/separator';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { Upload, Play, RefreshCw, Save, Pause, XCircle, FileJson, Download, CheckCircle, AlertCircle } from "lucide-react";
-import { toast } from "@/hooks/use-toast";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-// Helper to format time (seconds to HH:MM:SS)
-function formatElapsedTime(seconds: number) {
-  if (isNaN(seconds) || seconds < 0) return "00:00:00";
-  const h = Math.floor(seconds / 3600).toString().padStart(2, '0');
-  const m = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
-  const s = (seconds % 60).toString().padStart(2, '0');
-  return `${h}:${m}:${s}`;
-}
+// Types
+type FilterStatus = 'all' | 'success' | 'failed';
 
-export default function ButtondownBulkImport() {
-  const { activeAccount } = useAccount();
-  const { jobs, addJob, pauseJob, resumeJob, removeJob, getActiveJobForAccount } = useJob();
-  
-  // Track the ID of the specific job we just started
-  const [specificJobId, setSpecificJobId] = useState<string | null>(null);
+// Helper to format time
+const formatTime = (seconds: number) => {
+    if (isNaN(seconds) || seconds < 0) return "00:00";
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+};
 
-  // --- SMART JOB SELECTION ---
-  const currentJob = useMemo(() => {
-     if (!activeAccount) return null;
-     
-     // New helper logic
-     if (getActiveJobForAccount) {
-         return getActiveJobForAccount(activeAccount.id);
-     }
+const ButtondownBulkImport = () => {
+    const { activeAccount: selectedAccount } = useAccount();
+    const { getActiveJobForAccount, addJob, pauseJob, resumeJob, stopJob, removeJob } = useJob();
 
-     // Fallback logic
-     const accountJobs = jobs.filter(j => j.accountId === activeAccount.id);
-     if (accountJobs.length === 0) return null;
-     const active = accountJobs.find(j => ['processing', 'pending', 'paused'].includes(j.status));
-     return active || accountJobs[accountJobs.length - 1];
-  }, [jobs, activeAccount, specificJobId, getActiveJobForAccount]);
+    // Local State
+    const [emailListInput, setEmailListInput] = useState('');
+    const [delayInput, setDelayInput] = useState(2);
+    const [filter, setFilter] = useState<FilterStatus>('all');
+    
+    // Buttondown Specific State
+    const [senderName, setSenderName] = useState("");
+    const [newsletterId, setNewsletterId] = useState<string | null>(null);
+    const [loadingSender, setLoadingSender] = useState(false);
+    const [selectedEmailId, setSelectedEmailId] = useState<string>("none");
+    const [availableEmails, setAvailableEmails] = useState<any[]>([]);
+    const [loadingEmails, setLoadingEmails] = useState(false);
+    const [tags, setTags] = useState("");
 
+    // Details Dialog State
+    const [viewDetails, setViewDetails] = useState<any | null>(null);
+    const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+    
+    // Ticker for live time updates
+    const [now, setNow] = useState(Date.now());
 
-  // --- TIMER LOGIC ---
-  const [now, setNow] = useState(Date.now());
+    // Job Logic
+    const currentJob = useMemo(() => {
+        if (!selectedAccount) return null;
+        return getActiveJobForAccount(selectedAccount.id);
+    }, [selectedAccount, getActiveJobForAccount]);
 
-  useEffect(() => {
-    const interval = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(interval);
-  }, []);
+    const isRunning = currentJob?.status === 'processing';
+    const isPaused = currentJob?.status === 'paused';
+    const isWorking = isRunning || isPaused;
 
-  const elapsedSeconds = useMemo(() => {
-      if (!currentJob) return 0;
-      
-      const isDone = ['completed', 'failed', 'stopped'].includes(currentJob.status);
-      const endTime = (isDone && currentJob.endTime) ? currentJob.endTime : now;
-      
-      let duration = endTime - currentJob.startTime;
-      duration -= (currentJob.totalPausedTime || 0);
+    // --- 1. PERSISTENCE & INIT LOGIC ---
+    useEffect(() => {
+        if (selectedAccount) {
+            // Restore Text
+            const savedDraft = sessionStorage.getItem(`bd_bulk_input_${selectedAccount.id}`);
+            setEmailListInput(savedDraft || "");
+            
+            // Reset other fields
+            setTags("");
+            setSenderName("");
+            setNewsletterId(null);
+            
+            // Fetch Data
+            fetchNewsletterInfo();
+            fetchEmails();
+        } else {
+            setEmailListInput('');
+        }
+    }, [selectedAccount?.id]); 
 
-      if (currentJob.status === 'paused' && currentJob.pauseStartTime) {
-          duration -= (now - currentJob.pauseStartTime);
-      }
+    // Timer Interval
+    useEffect(() => {
+        const timer = setInterval(() => setNow(Date.now()), 1000);
+        return () => clearInterval(timer);
+    }, []);
+    
+    // --- 2. ELAPSED TIME CALCULATION ---
+    const elapsedTime = useMemo(() => {
+        if (!currentJob) return 0;
+        
+        const isDone = ['completed', 'failed', 'stopped'].includes(currentJob.status);
+        const endTime = (isDone && currentJob.endTime) ? currentJob.endTime : now;
+        
+        let duration = endTime - currentJob.startTime;
+        duration -= (currentJob.totalPausedTime || 0);
 
-      return Math.max(0, Math.floor(duration / 1000));
-  }, [currentJob, now]);
+        if (currentJob.status === 'paused' && currentJob.pauseStartTime) {
+            duration -= (now - currentJob.pauseStartTime);
+        }
 
+        return Math.max(0, Math.floor(duration / 1000));
+    }, [currentJob, now]);
 
-  // --- STATE ---
-  const [senderName, setSenderName] = useState("");
-  const [newsletterId, setNewsletterId] = useState<string | null>(null);
-  const [loadingSender, setLoadingSender] = useState(false);
+    const emailCount = useMemo(() => emailListInput.split(/[\n,;]+/).filter(Boolean).length, [emailListInput]);
 
-  const [textInput, setTextInput] = useState("");
-  const [tags, setTags] = useState("");
-  const [delay, setDelay] = useState(2);
-  const [selectedEmailId, setSelectedEmailId] = useState<string>("none");
-  const [availableEmails, setAvailableEmails] = useState<any[]>([]);
-  const [loadingEmails, setLoadingEmails] = useState(false);
-
-  const [filter, setFilter] = useState<'all' | 'success' | 'failed'>('all');
-  const [detailsModalOpen, setDetailsModalOpen] = useState(false);
-  const [detailsData, setDetailsData] = useState<any>(null);
-
-  // --- 0. RESET FORM & RESTORE DATA ON ACCOUNT SWITCH ---
-  useEffect(() => {
-      if (activeAccount) {
-          // Restore text from storage
-          const savedText = sessionStorage.getItem(`bd_bulk_input_${activeAccount.id}`);
-          setTextInput(savedText || "");
-
-          setTags("");
-          setSenderName("");
-          setNewsletterId(null);
-          setSpecificJobId(null); 
-          fetchNewsletterInfo();
-          fetchEmails();
-      }
-  }, [activeAccount?.id]); 
-
-  // --- HANDLER: SAVE TEXT ON CHANGE ---
-  const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      const val = e.target.value;
-      setTextInput(val);
-      if (activeAccount) {
-          sessionStorage.setItem(`bd_bulk_input_${activeAccount.id}`, val);
-      }
-  };
-
-  // --- 1. FETCH DATA ---
-  const fetchNewsletterInfo = async () => {
-    if (!activeAccount) return;
-    setLoadingSender(true);
-    try {
-      const res = await fetch('/api/buttondown/newsletter', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey: activeAccount.apiKey })
-      });
-      const data = await res.json();
-      if (data && data.id) {
-        setNewsletterId(data.id);
-        setSenderName(data.from_name || data.name || "");
-      }
-    } catch (err) { console.error(err); } 
-    finally { setLoadingSender(false); }
-  };
-
-  const fetchEmails = async () => {
-    if (!activeAccount) return;
-    setLoadingEmails(true);
-    try {
-        const res = await fetch('/api/buttondown/emails', {
+    // --- API HELPERS ---
+    const fetchNewsletterInfo = async () => {
+        if (!selectedAccount) return;
+        setLoadingSender(true);
+        try {
+          const res = await fetch('/api/buttondown/newsletter', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ apiKey: activeAccount.apiKey })
-        });
-        const data = await res.json();
-        if (Array.isArray(data)) setAvailableEmails(data);
-    } catch (err) { console.error(err); } 
-    finally { setLoadingEmails(false); }
-  };
+            body: JSON.stringify({ apiKey: selectedAccount.apiKey })
+          });
+          const data = await res.json();
+          if (data && data.id) {
+            setNewsletterId(data.id);
+            setSenderName(data.from_name || data.name || "");
+          }
+        } catch (err) { console.error(err); } 
+        finally { setLoadingSender(false); }
+    };
+    
+    const fetchEmails = async () => {
+        if (!selectedAccount) return;
+        setLoadingEmails(true);
+        try {
+            const res = await fetch('/api/buttondown/emails', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ apiKey: selectedAccount.apiKey })
+            });
+            const data = await res.json();
+            if (Array.isArray(data)) setAvailableEmails(data);
+        } catch (err) { console.error(err); } 
+        finally { setLoadingEmails(false); }
+    };
 
-  const updateSenderName = async () => {
-    if (!activeAccount || !newsletterId) return;
-    setLoadingSender(true);
-    try {
-      const res = await fetch(`/api/buttondown/newsletter/${newsletterId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey: activeAccount.apiKey, from_name: senderName })
-      });
-      if (!res.ok) throw new Error("Failed");
-      toast({ title: "Success", description: "Sender Name Updated" });
-    } catch (err) {
-      toast({ title: "Error", description: "Could not update sender name", variant: "destructive" });
-    } finally {
-      setLoadingSender(false);
-    }
-  };
+    const updateSenderName = async () => {
+        if (!selectedAccount || !newsletterId) return;
+        setLoadingSender(true);
+        try {
+          const res = await fetch(`/api/buttondown/newsletter/${newsletterId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ apiKey: selectedAccount.apiKey, from_name: senderName })
+          });
+          if (!res.ok) throw new Error("Failed");
+          toast({ title: "Success", description: "Sender Name Updated" });
+        } catch (err) {
+          toast({ title: "Error", description: "Could not update sender name", variant: "destructive" });
+        } finally {
+          setLoadingSender(false);
+        }
+    };
 
-  // --- 2. IMPORT LOGIC ---
-  const handleImport = () => {
-    if (!textInput.trim()) return;
-
-    const lines = textInput.split(/[\n,]+/).filter(l => l.trim().length > 0);
-    const contacts = lines.map(line => {
-        const parts = line.split(',');
-        return {
-            email: parts[0].trim(),
-            notes: parts[1] ? `Name: ${parts[1].trim()}` : undefined, 
-            tags: tags.split(',').map(t => t.trim()).filter(Boolean)
-        };
-    });
-
-    if (contacts.length === 0) return;
-
-    const currentApiKey = activeAccount?.apiKey;
-    const currentEmailId = selectedEmailId;
-
-    // Use addJob with accountId binding
-    const newJobId = addJob({
-      title: `Buttondown Import`,
-      totalItems: contacts.length,
-      data: contacts,
-      batchSize: 1, 
-      apiEndpoint: '/api/buttondown/import/contact',
-      processItem: async (contact) => {
-        if (delay > 0) await new Promise(r => setTimeout(r, delay * 1000));
-
-        const res = await fetch('/api/buttondown/import/contact', {
-           method: 'POST',
-           headers: { 'Content-Type': 'application/json' },
-           body: JSON.stringify({ 
-               apiKey: currentApiKey, 
-               contact,
-               emailId: currentEmailId !== "none" ? currentEmailId : undefined
-           })
-        });
-
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.details || json.error || "Failed");
+    // Handlers
+    const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        const newValue = e.target.value;
+        setEmailListInput(newValue);
+        if (selectedAccount) {
+            sessionStorage.setItem(`bd_bulk_input_${selectedAccount.id}`, newValue);
+        }
+    };
+    
+    const handleStartImport = () => {
+        if (!selectedAccount) {
+            toast({ title: 'Error', description: 'Please select an account first.', variant: "destructive" });
+            return;
+        }
+        if (!emailListInput.trim()) {
+            toast({ title: 'Error', description: 'Please provide at least one email address.', variant: "destructive" });
+            return;
+        }
         
-        return { ...json, email: contact.email };
-      }
-    }, activeAccount.id); // <--- BIND TO ACCOUNT
+        // Prepare Data
+        const contacts = emailListInput.split(/[\n,;]+/).filter(Boolean).map(line => {
+            const [email, name] = line.trim().split(/\s+|,/);
+            return {
+                email: email?.trim(),
+                notes: name ? `Name: ${name.trim()}` : undefined, 
+                tags: tags.split(',').map(t => t.trim()).filter(Boolean)
+            };
+        });
 
-    setSpecificJobId(newJobId);
-    toast({ title: "Job Started", description: `${contacts.length} contacts queued.` });
-  };
+        const currentApiKey = selectedAccount.apiKey;
+        const currentEmailId = selectedEmailId;
 
-  // --- 3. UI HELPERS ---
-  const emailCount = textInput.split(/[\n,]+/).filter(e => e.trim().length > 0).length;
-  
-  const isJobActive = currentJob && ['processing', 'paused'].includes(currentJob.status);
-  
-  const successCount = currentJob?.results.filter(r => r.status === 'success').length || 0;
-  const failCount = currentJob?.results.filter(r => r.status === 'error').length || 0;
-  
-  const progress = currentJob && currentJob.totalItems > 0 
-      ? ((successCount + failCount) / currentJob.totalItems) * 100 
-      : 0;
-  
-  const filteredResults = currentJob?.results.filter(r => {
-      if (filter === 'all') return true;
-      if (filter === 'success') return r.status === 'success';
-      if (filter === 'failed') return r.status === 'error';
-      return true;
-  }) || [];
-
-  const handleExport = () => {
-    if (!filteredResults.length) return;
-    const txt = filteredResults.map(r => `${r.data?.email || r.data?.data?.email || 'unknown'},${r.status}`).join('\n');
-    const blob = new Blob([txt], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `buttondown_export_${filter}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-  };
-
-  return (
-    <div className="p-6 max-w-[1600px] mx-auto grid grid-cols-1 lg:grid-cols-2 gap-6">
-      
-      {/* LEFT COLUMN: Configuration */}
-      <div className="space-y-6">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-2xl font-bold">Add Subscribers</CardTitle>
-            <CardDescription>Add new subscribers to your mailing list.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            
-            {/* Emails Input */}
-            <div className="space-y-2">
-                <div className="flex justify-between items-center">
-                    <Label className="text-sm font-semibold">Email Address(es)</Label>
-                    <div className="flex items-center space-x-2">
-                        <span className="text-sm text-muted-foreground">{emailCount} email(s)</span>
-                        <Button variant="ghost" size="sm" onClick={() => setTextInput("")} disabled={isJobActive} className="h-auto py-1 px-2 text-xs">Clear</Button>
-                    </div>
-                </div>
-                <Textarea 
-                    placeholder="user@example.com&#10;user2@example.com, John Doe" 
-                    rows={8} 
-                    value={textInput}
-                    onChange={handleTextChange} // <--- Saving on Change
-                    className="font-mono"
-                    disabled={isJobActive}
-                />
-            </div>
-
-            {/* Tags Input */}
-            <div className="space-y-2">
-                <Label className="text-sm font-semibold">Tags (comma separated)</Label>
-                <Input placeholder="newsletter, 2024-leads" value={tags} onChange={e => setTags(e.target.value)} disabled={isJobActive}/>
-            </div>
-
-            {/* GRID: From Name & Send Email */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                    <Label htmlFor="sender" className="text-sm font-semibold">From Name</Label>
-                    <div className="flex gap-2">
-                        <Input 
-                            id="sender" 
-                            value={senderName} 
-                            onChange={(e) => setSenderName(e.target.value)} 
-                            placeholder="e.g. John Doe"
-                            disabled={loadingSender || isJobActive}
-                        />
-                        <Button size="icon" onClick={updateSenderName} disabled={loadingSender || isJobActive} variant="secondary">
-                            {loadingSender ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                        </Button>
-                    </div>
-                </div>
-
-                <div className="space-y-2">
-                    <div className="flex justify-between items-center h-5 mb-1">
-                        <Label className="text-sm font-semibold">Send Email (Optional)</Label>
-                        <Button variant="ghost" size="sm" onClick={fetchEmails} disabled={isJobActive || loadingEmails} className="h-6 w-6 p-0">
-                             <RefreshCw className={loadingEmails ? "animate-spin w-3 h-3" : "w-3 h-3"} />
-                        </Button>
-                    </div>
-                    <Select value={selectedEmailId} onValueChange={setSelectedEmailId} disabled={isJobActive || loadingEmails}>
-                        <SelectTrigger>
-                            <SelectValue placeholder="Do not send" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="none">Do not send a specific email</SelectItem>
-                            {availableEmails.map((email: any) => (
-                                <SelectItem key={email.id} value={email.id}>
-                                    {email.subject || '(No Subject)'}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                </div>
-            </div>
-
-            <div className="space-y-2">
-                <Label className="text-sm font-semibold">Delay Between Requests (seconds)</Label>
-                <Input type="number" value={delay} onChange={e => setDelay(Number(e.target.value))} min={0} disabled={isJobActive} />
-            </div>
-
-            <div className="pt-2">
-                {!isJobActive ? (
-                  <Button onClick={handleImport} className="w-full h-12 text-lg" disabled={!activeAccount || emailCount === 0}>
-                    <Play className="w-5 h-5 mr-2" /> Start Subscription
-                  </Button>
-                ) : (
-                  <div className="flex gap-2">
-                    <Button 
-                        onClick={() => currentJob?.status === 'paused' ? resumeJob(currentJob.id) : pauseJob(currentJob!.id)} 
-                        className="flex-1 h-12 bg-yellow-600 hover:bg-yellow-700"
-                    >
-                         {currentJob?.status === 'paused' ? <Play className="w-5 h-5 mr-2"/> : <Pause className="w-5 h-5 mr-2" />}
-                         {currentJob?.status === 'paused' ? "Resume" : "Pause"}
-                    </Button>
-                    <Button onClick={() => removeJob(currentJob!.id)} className="flex-1 h-12 bg-destructive hover:bg-destructive/90">
-                        <XCircle className="w-5 h-5 mr-2" /> End Job
-                    </Button>
-                  </div>
-                )}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* RIGHT COLUMN: Status & Results */}
-      <div className="space-y-6">
-        {(currentJob || textInput) && (
-            <div className="space-y-6">
+        // FIXED: Add Job using new Context API signature
+        addJob({
+            title: `Buttondown Import`,
+            totalItems: contacts.length,
+            data: contacts,
+            apiEndpoint: 'buttondown',
+            batchSize: 1,
+            processItem: async (contact) => {
+                if (delayInput > 0) await new Promise(r => setTimeout(r, delayInput * 1000));
                 
-                {/* Status Card */}
-                {currentJob && (
-                    <Card>
-                        <CardHeader>
-                            <CardTitle>Job Status {currentJob.status === 'completed' && <span className="text-green-600 text-sm ml-2">(Finished)</span>}</CardTitle>
-                        </CardHeader>
-                        <CardContent className="grid grid-cols-3 gap-4 text-center">
-                            <div>
-                                <p className="text-sm text-muted-foreground">Time Elapsed</p>
-                                <p className="text-2xl font-bold font-mono">{formatElapsedTime(elapsedSeconds)}</p> 
-                            </div>
-                            <div>
-                                <p className="text-sm text-muted-foreground">Success</p>
-                                <p className="text-2xl font-bold text-green-600">{successCount}</p>
-                            </div>
-                            <div>
-                                <p className="text-sm text-muted-foreground">Fail</p>
-                                <p className="text-2xl font-bold text-red-600">{failCount}</p>
-                            </div>
-                        </CardContent>
-                    </Card>
-                )}
+                const res = await fetch('/api/buttondown/import/contact', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        apiKey: currentApiKey, 
+                        contact,
+                        emailId: currentEmailId !== "none" ? currentEmailId : undefined
+                    })
+                });
+                
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || "Failed");
+                return { ...data, email: contact.email };
+            }
+        }, selectedAccount.id); // <--- Bind to account ID
+        
+        toast({ title: 'Job Started', description: `Starting import for ${selectedAccount.name}...` });
+    };
 
-                {/* Progress Bar */}
-                {currentJob && isJobActive && (
-                    <div className="space-y-2">
-                        <div className="flex justify-between text-sm text-muted-foreground">
-                            <span>Progress: {progress.toFixed(0)}%</span>
-                            <span>{successCount + failCount} / {currentJob.totalItems}</span>
-                        </div>
-                        <Progress value={progress} className="h-2" />
-                    </div>
-                )}
+    const handleStopJob = () => {
+        if (!currentJob) return;
+        stopJob(currentJob.id);
+        toast({ title: 'Job Stopped', description: `Import has been stopped.` });
+    };
 
-                {/* Results Table */}
-                {currentJob && currentJob.results.length > 0 && (
-                    <Card className="flex flex-col overflow-hidden">
-                        <CardHeader className="flex flex-row items-center justify-between pb-2">
-                             <CardTitle className="text-xl">Results</CardTitle>
-                             <div className="flex gap-2">
-                                <ToggleGroup type="single" value={filter} onValueChange={(v: any) => v && setFilter(v)} size="sm">
-                                    <ToggleGroupItem value="all" className="text-xs">All</ToggleGroupItem>
-                                    <ToggleGroupItem value="success" className="text-xs text-green-600">Success</ToggleGroupItem>
-                                    <ToggleGroupItem value="failed" className="text-xs text-red-600">Fail</ToggleGroupItem>
-                                </ToggleGroup>
-                                <Button variant="outline" size="sm" onClick={handleExport}>
-                                    <Download className="w-3 h-3" />
-                                </Button>
-                             </div>
-                        </CardHeader>
-                        <CardContent className="p-0">
-                            <div className="max-h-[500px] overflow-auto">
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead className="w-[50px]">#</TableHead>
-                                            <TableHead>Email</TableHead>
-                                            <TableHead>Status</TableHead>
-                                            <TableHead className="text-right">Action</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {filteredResults.slice().reverse().map((res, i) => (
-                                            <TableRow key={i} className={res.status === 'success' ? 'bg-green-50/30' : 'bg-red-50/30'}>
-                                                <TableCell className="font-mono text-xs">{currentJob.results.indexOf(res) + 1}</TableCell>
-                                                <TableCell className="font-medium text-sm">
-                                                    {res.data?.email || res.data?.contact?.email || res.error?.data?.email || 'Unknown'}
-                                                </TableCell>
-                                                <TableCell>
-                                                    {res.status === 'success' ? 
-                                                        <Badge variant="outline" className="text-green-600 bg-green-50 border-green-200"><CheckCircle className="w-3 h-3 mr-1"/> Success</Badge> : 
-                                                        <Badge variant="destructive"><AlertCircle className="w-3 h-3 mr-1"/> Failed</Badge>
-                                                    }
-                                                </TableCell>
-                                                <TableCell className="text-right">
-                                                    <Button variant="ghost" size="sm" onClick={() => { setDetailsData(res); setDetailsModalOpen(true); }}>
-                                                        <FileJson className="w-4 h-4 text-muted-foreground" />
-                                                    </Button>
-                                                </TableCell>
-                                            </TableRow>
-                                        ))}
-                                    </TableBody>
-                                </Table>
-                            </div>
-                        </CardContent>
-                    </Card>
-                )}
+    const handleExport = () => {
+        const emailsToExport = filteredResults.map(result => result.data?.email || result.data?.contact?.email).join('\n');
+        if (!emailsToExport) {
+            toast({ title: 'Export Failed', description: "No emails to export.", variant: "destructive" });
+            return;
+        }
+        const blob = new Blob([emailsToExport], { type: 'text/plain;charset=utf-8' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `buttondown_export_${selectedAccount?.name}_${filter}.txt`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
+    // Filter Logic
+    const filteredResults = useMemo(() => {
+        if (!currentJob) return [];
+        if (filter === 'all') return currentJob.results;
+        return currentJob.results.filter(result => result.status === filter);
+    }, [currentJob, filter]);
+
+    const { successCount, errorCount } = useMemo(() => {
+        if (!currentJob) return { successCount: 0, errorCount: 0 };
+        return {
+            successCount: currentJob.results.filter(r => r.status === 'success').length,
+            errorCount: currentJob.results.filter(r => r.status === 'error' || r.status === 'failed').length,
+        };
+    }, [currentJob]);
+
+    const progress = currentJob && currentJob.totalItems > 0 ? (currentJob.processedItems / currentJob.totalItems) * 100 : 0;
+
+    return (
+        <div className="p-6 max-w-[1600px] mx-auto animate-in fade-in duration-500 h-[calc(100vh-60px)] flex flex-col">
+            {/* Header */}
+            <div className="flex items-center gap-3 mb-6 shrink-0">
+                <div className="p-2 bg-primary/10 rounded-lg">
+                    <Upload className="h-6 w-6 text-primary" />
+                </div>
+                <div>
+                    <h1 className="text-2xl font-bold tracking-tight">Buttondown Bulk Import</h1>
+                    <p className="text-sm text-muted-foreground">Manage your subscriber imports directly.</p>
+                </div>
             </div>
-        )}
-      </div>
 
-      <Dialog open={detailsModalOpen} onOpenChange={setDetailsModalOpen}>
-        <DialogContent>
-            <DialogHeader>
-                <DialogTitle>API Response Details</DialogTitle>
-                <DialogDescription>Raw response from Buttondown.</DialogDescription>
-            </DialogHeader>
-            <ScrollArea className="h-[300px] w-full rounded-md border p-4 bg-slate-950 text-slate-50 font-mono text-xs">
-                <pre>{JSON.stringify(detailsData, null, 2)}</pre>
-            </ScrollArea>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
+            {!selectedAccount && (
+                <Alert variant="destructive" className="mb-6 shrink-0">
+                    <Terminal className="h-4 w-4" />
+                    <AlertTitle>No Account Selected</AlertTitle>
+                    <AlertDescription>Please select an account from the sidebar.</AlertDescription>
+                </Alert>
+            )}
+
+            {/* MAIN TWO-COLUMN LAYOUT */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 min-h-0">
+                
+                {/* LEFT COLUMN: Input & Configuration */}
+                <Card className="flex flex-col h-full overflow-hidden">
+                    <CardHeader className="pb-3 border-b bg-muted/20">
+                        <CardTitle className="text-base font-semibold flex items-center gap-2">
+                            <Terminal className="h-4 w-4" /> Import Configuration
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent className="flex-1 flex flex-col p-4 space-y-4 overflow-hidden">
+                        
+                        {/* Textarea Section */}
+                        <div className="flex-1 flex flex-col min-h-0">
+                            <Label htmlFor="emailList" className="mb-2 block text-xs uppercase tracking-wider text-muted-foreground">
+                                Paste Emails (CSV or New Line)
+                            </Label>
+                            <Textarea
+                                id="emailList"
+                                placeholder="user1@example.com&#10;user2@example.com,John,Doe"
+                                className="flex-1 resize-none font-mono text-sm leading-relaxed"
+                                value={emailListInput}
+                                onChange={handleTextareaChange}
+                                disabled={isWorking}
+                            />
+                            <div className="mt-2 flex justify-between text-xs text-muted-foreground">
+                                <span>Detected: <strong className="text-foreground">{emailCount}</strong></span>
+                                <span>Supported: Email, Name</span>
+                            </div>
+                        </div>
+
+                        <Separator />
+
+                        {/* Settings Section (Grid Layout for Compactness) */}
+                        <div className="grid grid-cols-2 gap-4 shrink-0">
+                            
+                            {/* Tags */}
+                            <div className="col-span-2">
+                                <Label className="text-xs uppercase tracking-wider text-muted-foreground mb-1 block">Tags (comma separated)</Label>
+                                <Input 
+                                    placeholder="newsletter, leads" 
+                                    value={tags} 
+                                    onChange={e => setTags(e.target.value)} 
+                                    disabled={isWorking} 
+                                    className="h-8 text-sm"
+                                />
+                            </div>
+
+                            {/* From Name */}
+                            <div className="col-span-1">
+                                <Label className="text-xs uppercase tracking-wider text-muted-foreground mb-1 block">From Name</Label>
+                                <div className="flex gap-2">
+                                    <Input 
+                                        value={senderName} 
+                                        onChange={(e) => setSenderName(e.target.value)} 
+                                        disabled={loadingSender || isWorking}
+                                        className="h-8 text-sm"
+                                    />
+                                    <Button size="icon" onClick={updateSenderName} disabled={loadingSender || isWorking} variant="outline" className="h-8 w-8">
+                                        {loadingSender ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                                    </Button>
+                                </div>
+                            </div>
+
+                            {/* Delay */}
+                            <div className="col-span-1">
+                                <Label className="text-xs uppercase tracking-wider text-muted-foreground mb-1 block">Request Delay (s)</Label>
+                                <Input
+                                    type="number"
+                                    min="0.1"
+                                    step="0.1"
+                                    value={delayInput}
+                                    onChange={(e) => setDelayInput(Math.max(0, parseFloat(e.target.value)))}
+                                    className="h-8 text-sm"
+                                    disabled={isWorking}
+                                />
+                            </div>
+
+                            {/* Optional Email */}
+                            <div className="col-span-2">
+                                <div className="flex justify-between items-center mb-1">
+                                    <Label className="text-xs uppercase tracking-wider text-muted-foreground">Send Email (Optional)</Label>
+                                    <Button variant="ghost" size="sm" onClick={fetchEmails} disabled={isWorking || loadingEmails} className="h-5 w-5 p-0">
+                                         <RefreshCw className={loadingEmails ? "animate-spin w-3 h-3" : "w-3 h-3"} />
+                                    </Button>
+                                </div>
+                                <Select value={selectedEmailId} onValueChange={setSelectedEmailId} disabled={isWorking || loadingEmails}>
+                                    <SelectTrigger className="h-8 text-sm">
+                                        <SelectValue placeholder="Do not send" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="none">Do not send a specific email</SelectItem>
+                                        {availableEmails.map((email: any) => (
+                                            <SelectItem key={email.id} value={email.id}>
+                                                {email.subject || '(No Subject)'}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </div>
+
+                        {/* Controls */}
+                        <div className="grid grid-cols-2 gap-3 pt-2">
+                            <Button 
+                                onClick={handleStartImport} 
+                                disabled={!selectedAccount || isWorking} 
+                                className="w-full"
+                            >
+                                <Play className="h-4 w-4 mr-2" /> Start Import
+                            </Button>
+                            
+                            {isWorking ? (
+                                <div className="flex gap-2">
+                                    <Button 
+                                        onClick={() => isPaused ? resumeJob(currentJob!.id) : pauseJob(currentJob!.id)} 
+                                        variant="secondary" 
+                                        className="flex-1"
+                                    >
+                                        <Clock className="h-4 w-4 mr-2" /> {isPaused ? 'Resume' : 'Pause'}
+                                    </Button>
+                                    <Button 
+                                        onClick={handleStopJob} 
+                                        variant="destructive"
+                                        size="icon"
+                                    >
+                                        <Square className="h-4 w-4" />
+                                    </Button>
+                                </div>
+                            ) : (
+                                <Button variant="secondary" disabled className="w-full opacity-50 cursor-not-allowed">
+                                    <Clock className="h-4 w-4 mr-2" /> Pause / Stop
+                                </Button>
+                            )}
+                        </div>
+                    </CardContent>
+                </Card>
+
+                {/* RIGHT COLUMN: Results & Table */}
+                <Card className="flex flex-col h-full overflow-hidden border-l-4 border-l-primary/20">
+                    <CardHeader className="pb-3 border-b bg-muted/20 flex flex-row items-center justify-between space-y-0">
+                        <CardTitle className="text-base font-semibold flex items-center gap-2">
+                            <FileJson className="h-4 w-4" /> Import Results
+                        </CardTitle>
+                        <div className="flex items-center gap-2">
+                            <ToggleGroup type="single" value={filter} onValueChange={(v) => v && setFilter(v as FilterStatus)} size="sm" className="bg-background border rounded-md">
+                                <ToggleGroupItem value="all" className="h-7 text-xs px-2">All</ToggleGroupItem>
+                                <ToggleGroupItem value="success" className="h-7 text-xs px-2 text-green-600">Success</ToggleGroupItem>
+                                <ToggleGroupItem value="failed" className="h-7 text-xs px-2 text-red-600">Failed</ToggleGroupItem>
+                            </ToggleGroup>
+                            <Button variant="outline" size="icon" className="h-8 w-8" onClick={handleExport}>
+                                <Download className="h-3.5 w-3.5" />
+                            </Button>
+                        </div>
+                    </CardHeader>
+                    
+                    <CardContent className="flex-1 flex flex-col p-0 overflow-hidden">
+                        
+                        {/* Stats Dashboard */}
+                        <div className="grid grid-cols-3 divide-x border-b bg-muted/10">
+                            <div className="p-3 text-center">
+                                <div className="text-[10px] uppercase text-muted-foreground font-bold mb-1">Time Elapsed</div>
+                                <div className="text-lg font-mono font-medium">{formatTime(elapsedTime)}</div>
+                            </div>
+                            <div className="p-3 text-center">
+                                <div className="text-[10px] uppercase text-muted-foreground font-bold mb-1">Success</div>
+                                <div className="text-lg font-bold text-green-600">{successCount}</div>
+                            </div>
+                            <div className="p-3 text-center">
+                                <div className="text-[10px] uppercase text-muted-foreground font-bold mb-1">Failed</div>
+                                <div className="text-lg font-bold text-red-600">{errorCount}</div>
+                            </div>
+                        </div>
+
+                        {/* Progress Bar */}
+                        <div className="px-4 py-3 border-b">
+                            <div className="flex justify-between text-xs mb-2">
+                                <span className="text-muted-foreground">
+                                    Progress: <span className="text-foreground font-medium">{currentJob?.processedItems || 0} / {currentJob?.totalItems || 0}</span>
+                                </span>
+                                {isPaused && <Badge variant="outline" className="text-yellow-600 border-yellow-200 h-5 px-1">Paused</Badge>}
+                            </div>
+                            <Progress value={progress} className="h-1.5" />
+                        </div>
+
+                        {/* Results Table */}
+                        <div className="flex-1 overflow-auto bg-slate-50/50">
+                            <Table>
+                                <TableHeader className="bg-background sticky top-0 z-10 shadow-sm">
+                                    <TableRow className="h-9 hover:bg-background">
+                                        <TableHead className="w-[50px] text-xs">#</TableHead>
+                                        <TableHead className="text-xs">Email</TableHead>
+                                        <TableHead className="w-[100px] text-xs">Status</TableHead>
+                                        <TableHead className="w-[60px] text-xs text-right">Info</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {filteredResults.length > 0 ? filteredResults.map((result, idx) => (
+                                        <TableRow key={idx} className="h-9">
+                                            <TableCell className="text-xs font-mono text-muted-foreground py-1">{filteredResults.length - idx}</TableCell>
+                                            <TableCell className="text-xs font-medium py-1">{result.data?.email || 'Unknown'}</TableCell>
+                                            <TableCell className="py-1">
+                                                {result.status === 'success' ? (
+                                                    <Badge variant="outline" className="text-[10px] bg-green-50 text-green-700 border-green-200 h-5 px-1.5 gap-1">
+                                                        <CheckCircle className="h-2.5 w-2.5" /> OK
+                                                    </Badge>
+                                                ) : (
+                                                    <Badge variant="outline" className="text-[10px] bg-red-50 text-red-700 border-red-200 h-5 px-1.5 gap-1">
+                                                        <XCircle className="h-2.5 w-2.5" /> Fail
+                                                    </Badge>
+                                                )}
+                                            </TableCell>
+                                            <TableCell className="text-right py-1">
+                                                <Button 
+                                                    variant="ghost" 
+                                                    size="icon" 
+                                                    className="h-6 w-6 hover:bg-primary/10 hover:text-primary"
+                                                    onClick={() => { setViewDetails(result); setIsDetailsOpen(true); }}
+                                                >
+                                                    <Info className="h-3.5 w-3.5" />
+                                                </Button>
+                                            </TableCell>
+                                        </TableRow>
+                                    )) : (
+                                        <TableRow>
+                                            <TableCell colSpan={4} className="h-32 text-center text-muted-foreground text-xs">
+                                                {isWorking ? "Waiting for results..." : "No logs available."}
+                                            </TableCell>
+                                        </TableRow>
+                                    )}
+                                </TableBody>
+                            </Table>
+                        </div>
+                    </CardContent>
+                </Card>
+            </div>
+
+            {/* Details Dialog */}
+            <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <FileJson className="h-5 w-5 text-primary" /> Response Details
+                        </DialogTitle>
+                        <DialogDescription>
+                            API Response for <b>{viewDetails?.data?.email}</b>
+                        </DialogDescription>
+                    </DialogHeader>
+                    <ScrollArea className="h-[300px] w-full rounded-md border p-4 bg-slate-950 text-slate-50">
+                        <pre className="text-xs font-mono whitespace-pre-wrap break-all">
+                            {JSON.stringify(viewDetails?.data || {}, null, 2)}
+                        </pre>
+                    </ScrollArea>
+                </DialogContent>
+            </Dialog>
+        </div>
+    );
+};
+
+export default ButtondownBulkImport;

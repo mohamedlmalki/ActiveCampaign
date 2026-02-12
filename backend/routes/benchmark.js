@@ -78,13 +78,26 @@ router.post("/import/contact", async (req, res) => {
                 EmailPerm: "1"
             }
         };
+
         const response = await client.post(`/Contact/${listId}/ContactDetails`, payload);
-        if (response.data.Response.Status === 1 || response.data.Response.Status === "1") {
-            res.status(202).json({ success: true, data: response.data.Response });
+        const result = response.data.Response;
+
+        // --- DEBUG LOG: See exactly what Benchmark sends back ---
+        console.log(`[BENCHMARK] Import Response for ${contact.email}:`, JSON.stringify(result));
+
+        // --- FIXED SUCCESS CHECK ---
+        // Success if Status is 1 OR if we got a valid ID back (which means it worked)
+        const isSuccess = (result.Status === 1 || result.Status === "1") || (result.ID && result.ID > 0);
+
+        if (isSuccess) {
+            res.status(202).json({ success: true, data: result });
         } else {
-            res.status(400).json({ error: "API Failure", details: response.data.Response });
+            // Even if "failed", log it so we know why
+            console.error(`[BENCHMARK] ❌ Import deemed failure:`, result);
+            res.status(400).json({ error: "API Failure", details: result });
         }
     } catch (error) {
+        console.error(`[BENCHMARK] 💥 Exception:`, error.message);
         res.status(500).json({ error: "Import failed", details: error.message });
     }
 });
