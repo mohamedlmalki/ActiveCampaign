@@ -4,10 +4,6 @@ const router = express.Router();
 
 // --- LOGGING MIDDLEWARE ---
 router.use((req, res, next) => {
-    console.log(`\n[BUTTONDOWN] 📩 Incoming ${req.method} request to ${req.originalUrl}`);
-    if (req.body && !req.body.importData) {
-        console.log(`[BUTTONDOWN] 📦 Body:`, JSON.stringify(req.body, null, 2));
-    }
     next();
 });
 
@@ -31,43 +27,29 @@ router.post("/check-status", async (req, res) => {
     const { apiKey } = req.body;
     try {
         const client = getClient(apiKey);
-        // Fetch 1 email just to check auth
         const response = await client.get('/emails', { params: { limit: 1 } });
-        console.log("[BUTTONDOWN] ✅ Status Check: Connected.");
         res.json({ status: 'connected', response: { status: response.status } });
     } catch (error) {
-        console.error("[BUTTONDOWN] ❌ Status Check Failed:", error.message);
-        res.status(401).json({ status: 'failed', response: error.response?.data || error.message });
+        res.status(401).json({ status: 'failed', response: error.message });
     }
 });
 
-// 2. Import Contact (Single)
+// 2. Import Contact
 router.post("/import/contact", async (req, res) => {
     const { apiKey, contact } = req.body;
-    if (!contact?.email) return res.status(400).json({ error: "Email is required" });
-
     try {
         const client = getClient(apiKey);
-        // Buttondown expects 'email_address'
         const payload = {
             email_address: contact.email,
             type: 'regular',
             tags: contact.tags || []
         };
+        if (contact.firstName) payload.notes = `Name: ${contact.firstName}`;
         
-        // Add optional notes if present
-        if (contact.firstName || contact.lastName) {
-             payload.notes = `Name: ${contact.firstName || ''} ${contact.lastName || ''}`.trim();
-        }
-
         const response = await client.post('/subscribers', payload);
         res.status(201).json({ success: true, id: response.data.id });
     } catch (error) {
-        // Handle "already subscribed" errors gracefully if needed, 
-        // but Buttondown usually returns 400 for duplicates.
-        const msg = error.response?.data?.detail || error.message;
-        console.error(`[BUTTONDOWN] ❌ Import Failed: ${msg}`);
-        res.status(400).json({ error: "Import failed", details: msg });
+        res.status(400).json({ error: "Import failed", details: error.response?.data || error.message });
     }
 });
 
@@ -83,30 +65,37 @@ router.post("/subscribers", async (req, res) => {
     }
 });
 
-// 4. Get Emails (Sent Newsletters)
+// 4. Get Emails
 router.post("/emails", async (req, res) => {
     const { apiKey } = req.body;
     try {
         const client = getClient(apiKey);
         const response = await client.get('/emails');
-        res.json(response.data.results);
+        res.json(response.data.results || response.data);
     } catch (error) {
         res.status(500).json({ error: "Failed to fetch emails" });
     }
 });
 
-// 5. Send Email (Add Letter)
+// 5. Send Email
 router.post("/send-email", async (req, res) => {
-    const { apiKey, subject, body, tags, status = 'sent' } = req.body;
+    const { apiKey, subject, body, tags, status } = req.body;
     try {
         const client = getClient(apiKey);
+        
+        let finalStatus = 'draft'; 
+        if (status === 'sent') finalStatus = 'about_to_send';
+        else if (status === 'draft') finalStatus = 'draft';
+        else if (status === 'scheduled') finalStatus = 'scheduled';
+
         const payload = {
             subject,
             body,
             tags: tags || [],
-            email_type: 'public', // or 'private'
-            status: status // 'sent', 'scheduled', 'draft'
+            email_type: 'public',
+            status: finalStatus
         };
+
         const response = await client.post('/emails', payload);
         res.json({ success: true, data: response.data });
     } catch (error) {
@@ -127,34 +116,104 @@ router.post("/emails/:emailId/analytics", async (req, res) => {
     }
 });
 
-// 7. Get Newsletter Info (For Sender Name)
+// 7. Get Newsletter Info (FIXED)
 router.post("/newsletter", async (req, res) => {
     const { apiKey } = req.body;
     try {
         const client = getClient(apiKey);
         const response = await client.get('/newsletters');
-        // Usually returns a list, we take the first one
+        
+        // Buttondown returns a list. We take the first one.
         const newsletter = response.data.results?.[0];
+        
         if (newsletter) {
-            res.json(newsletter);
+            console.log(`[BUTTONDOWN] Found Newsletter: ${newsletter.name}`);
+            // Normalize the response so Frontend always finds 'from_name'
+            res.json({
+                ...newsletter,
+                from_name: newsletter.name || newsletter.author_name || "Unknown"
+            });
         } else {
+            console.warn("[BUTTONDOWN] No newsletter found in account.");
             res.status(404).json({ error: "No newsletter found" });
         }
     } catch (error) {
+        console.error("[BUTTONDOWN] Failed to fetch newsletter:", error.message);
         res.status(500).json({ error: "Failed to fetch newsletter info" });
     }
 });
 
-// 8. Update Newsletter (Sender Name)
+// 8. Update Newsletter
 router.patch("/newsletter/:id", async (req, res) => {
     const { apiKey, from_name } = req.body;
     const { id } = req.params;
     try {
         const client = getClient(apiKey);
-        const response = await client.patch(`/newsletters/${id}`, { from_name });
+        // Buttondown uses 'name' for the newsletter title
+        const response = await client.patch(`/newsletters/${id}`, { name: from_name });
         res.json({ success: true, data: response.data });
     } catch (error) {
         res.status(500).json({ error: "Failed to update sender name" });
+    }
+});
+
+// 9. Get Email Events
+router.post("/events", async (req, res) => {
+    const { apiKey, emailId, eventType } = req.body;
+    try {
+        const client = getClient(apiKey);
+        const params = { email_id: emailId };
+        if (eventType) params.event_type = eventType;
+
+        const response = await client.get('/events', { params });
+        res.json(response.data.results || response.data);
+    } catch (error) {
+        res.json([]); 
+    }
+});
+
+// 10. Delete Subscriber
+router.post("/subscribers/:id/delete", async (req, res) => {
+    const { apiKey } = req.body;
+    const { id } = req.params;
+    try {
+        const client = getClient(apiKey);
+        await client.delete(`/subscribers/${id}`);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: "Failed to delete subscriber" });
+    }
+});
+
+// 11. Bulk Delete Subscribers
+router.post("/subscribers/bulk-delete", async (req, res) => {
+    const { apiKey, ids } = req.body;
+    if (!ids || !Array.isArray(ids)) return res.status(400).json({ error: "Invalid ID list" });
+
+    try {
+        const client = getClient(apiKey);
+        await Promise.all(ids.map(id => client.delete(`/subscribers/${id}`).catch(e => console.error(e))));
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: "Failed to bulk delete subscribers" });
+    }
+});
+
+// 12. Update Email
+router.patch("/emails/:id", async (req, res) => {
+    const { apiKey, subject, body, status } = req.body;
+    const { id } = req.params;
+    try {
+        const client = getClient(apiKey);
+        const payload = {};
+        if (subject) payload.subject = subject;
+        if (body) payload.body = body;
+        if (status) payload.status = status;
+
+        const response = await client.patch(`/emails/${id}`, payload);
+        res.json({ success: true, data: response.data });
+    } catch (error) {
+        res.status(500).json({ error: "Failed to update email" });
     }
 });
 

@@ -1,4 +1,5 @@
 import * as React from "react"
+import { useNavigate } from "react-router-dom" // <--- 1. IMPORT NAVIGATE
 import { 
   Sidebar,
   SidebarContent,
@@ -7,7 +8,6 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarGroup,
-  SidebarGroupLabel,
   SidebarGroupContent,
   SidebarRail,
   SidebarFooter
@@ -23,43 +23,34 @@ import {
   BarChart3, 
   Send, 
   Newspaper,
-  LayoutGrid 
+  Command 
 } from "lucide-react"
 import { useAccount, Account } from "@/contexts/AccountContext"
 import { Button } from "@/components/ui/button"
 import { AddAccountDialog } from "./AddAccountDialog" 
 import { EditAccountDialog } from "./EditAccountDialog"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { 
+  DropdownMenu, 
+  DropdownMenuContent, 
+  DropdownMenuItem, 
+  DropdownMenuLabel, 
+  DropdownMenuSeparator, 
+  DropdownMenuTrigger 
+} from "@/components/ui/dropdown-menu"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { toast } from "@/hooks/use-toast"
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { accounts, activeAccount, setActiveAccount, addAccount, updateAccount, deleteAccount } = useAccount()
   const [isAddOpen, setIsAddOpen] = React.useState(false)
   const [editingAccount, setEditingAccount] = React.useState<Account | null>(null)
+  
+  const navigate = useNavigate() // <--- 2. INITIALIZE HOOK
 
-  // --- LOGIC: SWITCH TO SERVICE ---
-  // When clicking a "Service Name", we find the first account of that type and switch to it.
-  const handleServiceClick = (provider: string) => {
-      const target = accounts.find(a => a.provider === provider);
-      if (target) {
-          setActiveAccount(target);
-      } else {
-          // If no account exists, maybe open "Add Account" pre-filled?
-          setIsAddOpen(true);
-      }
-  };
-
-  const getServiceIcon = (p: string) => {
-      if (p === 'benchmark') return BarChart3;
-      if (p === 'omnisend') return Send;
-      if (p === 'buttondown') return Newspaper;
-      return Activity;
-  }
-
-  // Define the available services statically or dynamically
+  // --- SERVICE LIST ---
   const services = [
       { id: 'activecampaign', name: 'ActiveCampaign', icon: Activity },
       { id: 'benchmark', name: 'Benchmark Email', icon: BarChart3 },
@@ -67,12 +58,30 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       { id: 'omnisend', name: 'Omnisend', icon: Send },
   ];
 
+  // --- SWITCH LOGIC ---
+  const handleServiceClick = (provider: string) => {
+      // Find the first account for this provider
+      const targetAccount = accounts.find(a => a.provider === provider);
+
+      if (targetAccount) {
+          setActiveAccount(targetAccount);
+          navigate('/'); // <--- 3. AUTO-NAVIGATE TO FIRST PAGE
+      } else {
+          toast({ 
+              title: "No Account Found", 
+              description: `Please add a ${provider} account first.`, 
+              variant: "default" 
+          });
+          setIsAddOpen(true);
+      }
+  };
+
   return (
     <Sidebar collapsible="icon" {...props}>
       <SidebarHeader className="p-4 border-b">
         <div className="flex items-center gap-2 font-bold text-lg text-sidebar-foreground">
           <div className="flex items-center justify-center w-8 h-8 rounded bg-primary text-primary-foreground">
-            FM
+            <Command className="w-4 h-4" />
           </div>
           <span className="truncate">Fusion Manager</span>
         </div>
@@ -80,12 +89,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
       <SidebarContent>
         <SidebarGroup>
-            <SidebarGroupLabel>Services</SidebarGroupLabel>
             <SidebarGroupContent>
                 <SidebarMenu>
                     {services.map(service => {
-                        const hasAccount = accounts.some(a => a.provider === service.id);
                         const isActive = activeAccount?.provider === service.id;
+                        const hasAccount = accounts.some(a => a.provider === service.id);
                         
                         return (
                             <SidebarMenuItem key={service.id}>
@@ -93,11 +101,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                                     isActive={isActive}
                                     onClick={() => handleServiceClick(service.id)}
                                     tooltip={service.name}
-                                    className={!hasAccount ? "opacity-50" : ""}
+                                    className={!hasAccount && !isActive ? "opacity-60" : ""}
                                 >
                                     <service.icon />
                                     <span>{service.name}</span>
-                                    {!hasAccount && <span className="ml-auto text-[10px] text-muted-foreground">(No Acc)</span>}
                                 </SidebarMenuButton>
                             </SidebarMenuItem>
                         )
@@ -108,7 +115,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       </SidebarContent>
 
       <SidebarFooter>
-        {/* --- ACCOUNT SWITCHER (BOTTOM) --- */}
         <AccountSwitcher 
             accounts={accounts} 
             activeAccount={activeAccount} 
@@ -120,7 +126,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       
       <SidebarRail />
 
-      {/* DIALOGS */}
       <AddAccountDialog open={isAddOpen} onOpenChange={setIsAddOpen} onAdd={addAccount} />
       
       {editingAccount && (
@@ -136,7 +141,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   )
 }
 
-// --- HELPER: ACCOUNT SWITCHER ---
+// --- ACCOUNT SWITCHER ---
 function AccountSwitcher({ accounts, activeAccount, setActiveAccount, onAdd, onEdit }: any) {
     const getIcon = (provider?: string) => {
         if (provider === 'benchmark') return <BarChart3 className="size-4" />;
@@ -145,15 +150,14 @@ function AccountSwitcher({ accounts, activeAccount, setActiveAccount, onAdd, onE
         return <Activity className="size-4" />;
     }
 
-    // Only show accounts for the CURRENT active provider
     const displayedAccounts = React.useMemo(() => {
         if (!activeAccount) return [];
         return accounts.filter((acc: Account) => acc.provider === activeAccount.provider);
     }, [accounts, activeAccount]);
 
     if (!activeAccount) return (
-        <div className="p-4">
-            <Button variant="outline" className="w-full" onClick={onAdd}>
+        <div className="p-2">
+            <Button variant="outline" className="w-full justify-start" onClick={onAdd}>
                 <Plus className="mr-2 h-4 w-4"/> Add Account
             </Button>
         </div>
@@ -175,7 +179,7 @@ function AccountSwitcher({ accounts, activeAccount, setActiveAccount, onAdd, onE
                     <span className="truncate font-semibold">
                       {activeAccount.name}
                     </span>
-                    <span className="truncate text-xs text-muted-foreground">
+                    <span className="truncate text-xs text-muted-foreground capitalize">
                        {activeAccount.provider}
                     </span>
                   </div>
@@ -191,6 +195,7 @@ function AccountSwitcher({ accounts, activeAccount, setActiveAccount, onAdd, onE
                  <DropdownMenuLabel className="text-xs font-bold text-muted-foreground">
                     Switch {activeAccount.provider} Account
                  </DropdownMenuLabel>
+                 
                  <div className="max-h-[300px] overflow-y-auto">
                     {displayedAccounts.map((acc: Account) => (
                          <DropdownMenuItem 
@@ -214,6 +219,7 @@ function AccountSwitcher({ accounts, activeAccount, setActiveAccount, onAdd, onE
                          </DropdownMenuItem>
                     ))}
                  </div>
+                 
                  <DropdownMenuSeparator />
                  <DropdownMenuItem onClick={onAdd} className="gap-2 p-2 cursor-pointer text-blue-600 focus:text-blue-600">
                     <Plus className="size-4" />
@@ -226,7 +232,7 @@ function AccountSwitcher({ accounts, activeAccount, setActiveAccount, onAdd, onE
     )
 }
 
-// --- DIALOGS (Copied from your previous code) ---
+// --- DIALOGS ---
 
 function AddAccountDialog({ open, onOpenChange, onAdd }: any) {
     const [provider, setProvider] = React.useState('activecampaign')

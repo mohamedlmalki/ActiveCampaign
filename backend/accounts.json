@@ -40,5 +40,19 @@
     "apiKey": "b296167f-4c09-4d6f-aae5-6478a2c4c8b4",
     "apiUrl": "",
     "provider": "buttondown"
+  },
+  {
+    "id": "acc_1770873305051_5e2e",
+    "name": "2",
+    "apiKey": "9948bbc43bf41f85a2aa95de97adbf685d1add6e4b7cd2c76bd319568f2e1065b3b29b9b",
+    "apiUrl": "https://maykrcatazis.api-us1.com",
+    "provider": "activecampaign"
+  },
+  {
+    "id": "acc_1770873529201_0b7d",
+    "name": "2",
+    "apiKey": "6803ac6822cb9bfb8c060312-nnwRUk5miQAT54npGVHYlRI1MACf5AjXK2oheFr5bgL1NG8nhI",
+    "apiUrl": "",
+    "provider": "omnisend"
   }
 ]

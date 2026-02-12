@@ -11,10 +11,10 @@ import Layout from "./components/Layout";
 import BulkImport from "./pages/BulkImport";
 import UserManagement from "./pages/UserManagement";
 import Automation from "./pages/Automation";
-import Emails from "./pages/Emails";       // <--- NEW IMPORT
-import SendEmail from "./pages/SendEmail"; // <--- NEW IMPORT
+import Emails from "./pages/Emails";
+import SendEmail from "./pages/SendEmail"; 
+import Analytics from "./pages/buttondown/Analytics"; // <--- 1. IMPORT ANALYTICS
 import NotFound from "./pages/NotFound";
-
 
 const queryClient = new QueryClient();
 
@@ -28,14 +28,15 @@ const App = () => (
           <BrowserRouter>
             <Routes>
               <Route path="/" element={<Layout />}>
-                {/* Shared Routes (Wrappers) */}
                 <Route index element={<BulkImport />} />
                 <Route path="users" element={<UserManagement />} />
                 <Route path="automation" element={<Automation />} />
-                <Route path="emails" element={<Emails />} />       {/* <--- NEW ROUTE */}
-                <Route path="send" element={<SendEmail />} />     {/* <--- NEW ROUTE */}
+                <Route path="emails" element={<Emails />} />
+                <Route path="send" element={<SendEmail />} />
+                
+                {/* 2. ADD ROUTE */}
+                <Route path="analytics" element={<Analytics />} /> 
 
-                {/* 404 Route */}
                 <Route path="*" element={<NotFound />} />
               </Route>
             </Routes>
