@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Upload, Play, Pause, Square, Clock, Terminal, Download, CheckCircle, XCircle, Info, FileJson } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useAccount } from '@/contexts/AccountContext';
-import { useJobs } from '@/contexts/JobContext';
+import { useJob } from '@/contexts/JobContext'; // <--- FIXED IMPORT
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
@@ -29,7 +29,8 @@ const formatTime = (seconds: number) => {
 
 const OmnisendBulkImport = () => {
     const { activeAccount: selectedAccount } = useAccount();
-    const { jobs, startJob, pauseJob, resumeJob, cancelJob } = useJobs();
+    // <--- FIXED DESTRUCTURING
+    const { jobs, addJob, pauseJob, resumeJob, removeJob } = useJob();
 
     // Local State
     const [emailListInput, setEmailListInput] = useState('');
@@ -46,10 +47,11 @@ const OmnisendBulkImport = () => {
     // Job Logic
     const currentJob = useMemo(() => {
         if (!selectedAccount) return null;
-        return Object.values(jobs).find(j => j.accountId === selectedAccount.id) || null;
+        // Find job by title tag since we don't have explicit accountId in the simple Job interface
+        return jobs.find(j => j.title.includes(selectedAccount.id)) || null;
     }, [jobs, selectedAccount]);
 
-    const isRunning = currentJob?.status === 'running';
+    const isRunning = currentJob?.status === 'processing'; // <--- CHANGED TO PROCESSING
     const isPaused = currentJob?.status === 'paused';
     const isWorking = isRunning || isPaused;
 
@@ -57,11 +59,6 @@ const OmnisendBulkImport = () => {
     // Load saved state on account switch or mount
     useEffect(() => {
         if (selectedAccount) {
-            // Restore Delay if job exists
-            if (currentJob) { 
-                setDelayInput(currentJob.delay);
-            }
-            
             // Always try to restore draft text from Session Storage
             const savedDraft = sessionStorage.getItem(`omnisend_draft_${selectedAccount.id}`);
             if (savedDraft) {
@@ -72,7 +69,7 @@ const OmnisendBulkImport = () => {
         } else {
             setEmailListInput('');
         }
-    }, [selectedAccount, currentJob]);
+    }, [selectedAccount]);
 
     // Timer
     useEffect(() => {
@@ -83,7 +80,8 @@ const OmnisendBulkImport = () => {
         return () => clearInterval(timer);
     }, [isRunning]);
     
-    const elapsedTime = currentJob ? currentJob.elapsedTime : 0;
+    // Mock elapsed time since simple context doesn't track it
+    const elapsedTime = 0; 
     const emailCount = useMemo(() => emailListInput.split(/[\n,;]+/).filter(Boolean).length, [emailListInput]);
 
     // Handlers
@@ -107,31 +105,58 @@ const OmnisendBulkImport = () => {
             return;
         }
         
-        startJob(selectedAccount.id, 'omnisend-direct', 'Omnisend Import', emailListInput, delayInput);
-        
-        // Note: We do NOT clear the draft from session storage here.
-        // This ensures that if you navigate away while the job is running and come back,
-        // the text area is still populated (since JobContext doesn't store the raw text).
+        // Parse contacts
+        const contacts = emailListInput.split(/[\n,;]+/).filter(Boolean).map(e => ({ email: e.trim() }));
+
+        // <--- USE addJob INSTEAD OF startJob
+        addJob({
+            title: `Omnisend Import (${selectedAccount.id})`,
+            totalItems: contacts.length,
+            data: contacts,
+            batchSize: 1,
+            apiEndpoint: '/api/omnisend/import/contact',
+            processItem: async (contact) => {
+                 if (delayInput > 0) await new Promise(r => setTimeout(r, delayInput * 1000));
+                 
+                 const res = await fetch('/api/omnisend/import/contact', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        apiKey: selectedAccount.apiKey, 
+                        contact: contact
+                    })
+                });
+
+                if (!res.ok) {
+                     const err = await res.json();
+                     throw new Error(err.error || "Failed");
+                }
+                return await res.json();
+            }
+        });
         
         toast({ title: 'Job Started', description: `Starting import for ${selectedAccount.name}...` });
     };
 
     const handleStopJob = () => {
         if (!currentJob) return;
-        if (currentJob.status === 'paused') {
-            resumeJob(currentJob.id);
-        }
-        cancelJob(currentJob.id);
+        removeJob(currentJob.id); // <--- CHANGED TO removeJob
         toast({ title: 'Job Stopped', description: `Import has been stopped.` });
     };
 
     const handleExport = () => {
-        const emailsToExport = filteredResults.map(result => result.email).join('\n');
-        if (!emailsToExport) {
-            toast({ title: 'Export Failed', description: "No emails to export.", variant: "destructive" });
+        if (!currentJob) return;
+        const resultsToExport = filteredResults; // uses memoized results
+        
+        const textData = resultsToExport.map(r => 
+            `${r.data?.email || 'unknown'},${r.status}`
+        ).join('\n');
+
+        if (!textData) {
+            toast({ title: 'Export Failed', description: "No data to export.", variant: "destructive" });
             return;
         }
-        const blob = new Blob([emailsToExport], { type: 'text/plain;charset=utf-8' });
+        const blob = new Blob([textData], { type: 'text/plain;charset=utf-8' });
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
         link.download = `omnisend_export_${selectedAccount?.name}_${filter}.txt`;
@@ -143,19 +168,31 @@ const OmnisendBulkImport = () => {
     // Filter Logic
     const filteredResults = useMemo(() => {
         if (!currentJob) return [];
-        if (filter === 'all') return currentJob.results;
-        return currentJob.results.filter(result => result.status === filter);
+        // Map job results to the format expected by this component
+        // The context returns { status: 'success'|'error', data: ..., error: ... }
+        // We map 'error' status to 'failed' for this component's filter logic
+        return currentJob.results.map((r, idx) => ({
+            index: idx + 1,
+            email: r.data?.data?.email || r.data?.email || "Unknown", 
+            status: r.status === 'error' ? 'failed' : 'success',
+            data: JSON.stringify(r.data || r.error)
+        })).filter(result => {
+             if (filter === 'all') return true;
+             return result.status === filter;
+        });
     }, [currentJob, filter]);
 
     const { successCount, errorCount } = useMemo(() => {
         if (!currentJob) return { successCount: 0, errorCount: 0 };
         return {
             successCount: currentJob.results.filter(r => r.status === 'success').length,
-            errorCount: currentJob.results.filter(r => r.status === 'failed').length,
+            errorCount: currentJob.results.filter(r => r.status === 'error').length,
         };
     }, [currentJob]);
 
-    const progress = currentJob && currentJob.totalContacts > 0 ? (currentJob.progress) : 0;
+    const progress = currentJob && currentJob.totalItems > 0 
+        ? ((currentJob.processedItems / currentJob.totalItems) * 100) 
+        : 0;
 
     return (
         <div className="p-6 max-w-[1600px] mx-auto animate-in fade-in duration-500 h-[calc(100vh-60px)] flex flex-col">
@@ -311,7 +348,7 @@ const OmnisendBulkImport = () => {
                         <div className="px-4 py-3 border-b">
                             <div className="flex justify-between text-xs mb-2">
                                 <span className="text-muted-foreground">
-                                    Progress: <span className="text-foreground font-medium">{currentJob?.results.length || 0} / {currentJob?.totalContacts || 0}</span>
+                                    Progress: <span className="text-foreground font-medium">{currentJob?.processedItems || 0} / {currentJob?.totalItems || 0}</span>
                                 </span>
                                 {isPaused && <Badge variant="outline" className="text-yellow-600 border-yellow-200 h-5 px-1">Paused</Badge>}
                             </div>
@@ -383,12 +420,7 @@ const OmnisendBulkImport = () => {
                     </DialogHeader>
                     <ScrollArea className="h-[300px] w-full rounded-md border p-4 bg-slate-950 text-slate-50">
                         <pre className="text-xs font-mono whitespace-pre-wrap break-all">
-                            {viewDetails?.data ? (
-                                (() => {
-                                    try { return JSON.stringify(JSON.parse(viewDetails.data), null, 2); } 
-                                    catch (e) { return viewDetails.data; }
-                                })()
-                            ) : "No data available."}
+                            {viewDetails?.data}
                         </pre>
                     </ScrollArea>
                 </DialogContent>

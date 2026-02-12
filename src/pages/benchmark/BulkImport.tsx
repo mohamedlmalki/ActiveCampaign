@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { Upload, Play, FileJson2, Pause, Play as PlayIcon, XCircle } from "lucide-react";
+import { Upload, Play, Pause, Play as PlayIcon, StopCircle, CheckCircle, XCircle, FileJson } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,77 +11,129 @@ import { useAccount } from "@/contexts/AccountContext";
 import { useToast } from "@/components/ui/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import { useJobs } from "@/contexts/JobContext";
+import { useJob } from "@/contexts/JobContext";
 
 interface List {
     listId: string;
     name: string;
 }
 
-const formatTime = (seconds: number) => {
-    const h = Math.floor(seconds / 3600).toString().padStart(2, '0');
-    const m = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
-    const s = (seconds % 60).toString().padStart(2, '0');
-    return `${h}:${m}:${s}`;
-};
+// Helper to format time
+function formatElapsedTime(seconds: number) {
+  if (isNaN(seconds) || seconds < 0) return "00:00:00";
+  const h = Math.floor(seconds / 3600).toString().padStart(2, '0');
+  const m = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
+  const s = (seconds % 60).toString().padStart(2, '0');
+  return `${h}:${m}:${s}`;
+}
 
 export default function BulkImport() {
   const { activeAccount } = useAccount();
   const { toast } = useToast();
-  const { jobs, startJob, pauseJob, resumeJob, cancelJob } = useJobs();
+  const { jobs, addJob, pauseJob, resumeJob, stopJob } = useJob(); 
   
-  const activeJob = Object.values(jobs).find(job => job.accountId === activeAccount?.id);
+  const [specificJobId, setSpecificJobId] = useState<string | null>(null);
+
+  // --- SMART JOB SELECTION ---
+  const activeJob = useMemo(() => {
+     if (!activeAccount) return null;
+     if (specificJobId) {
+         const found = jobs.find(j => j.id === specificJobId);
+         if (found) return found;
+     }
+     const accountJobs = jobs.filter(j => j.title.includes(activeAccount.id));
+     if (accountJobs.length === 0) return null;
+     const active = accountJobs.find(j => ['processing', 'pending', 'paused'].includes(j.status));
+     if (active) return active;
+     return accountJobs[accountJobs.length - 1];
+  }, [jobs, activeAccount, specificJobId]);
 
   const [lists, setLists] = useState<List[]>([]);
   const [selectedList, setSelectedList] = useState<string | null>(null);
   const [importData, setImportData] = useState("");
-  const [delay, setDelay] = useState(1);
   const [defaultFirstName, setDefaultFirstName] = useState("");
+  const [delay, setDelay] = useState(1);
 
-  // --- EMAIL COUNTER ---
+  // Details Modal
+  const [detailsModalOpen, setDetailsModalOpen] = useState(false);
+  const [detailsData, setDetailsData] = useState<any>(null);
+
+  const isJobActive = activeJob && ['processing', 'paused'].includes(activeJob.status);
+
+  // --- TIMER LOGIC ---
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const elapsedSeconds = useMemo(() => {
+      if (!activeJob) return 0;
+      
+      const isDone = ['completed', 'failed', 'stopped'].includes(activeJob.status);
+      const endTime = (isDone && activeJob.endTime) ? activeJob.endTime : now;
+      
+      let duration = endTime - activeJob.startTime;
+      duration -= (activeJob.totalPausedTime || 0);
+
+      if (activeJob.status === 'paused' && activeJob.pauseStartTime) {
+          duration -= (now - activeJob.pauseStartTime);
+      }
+
+      return Math.max(0, Math.floor(duration / 1000));
+  }, [activeJob, now]);
+
+  // --- PERSISTENCE ---
+  useEffect(() => {
+    if (activeAccount) {
+        const key = `bm_draft_${activeAccount.id}`;
+        const saved = sessionStorage.getItem(key);
+        if (saved) {
+            try {
+                const parsed = JSON.parse(saved);
+                setImportData(parsed.importData || "");
+                setSelectedList(parsed.selectedList || null);
+                setDefaultFirstName(parsed.defaultFirstName || "");
+            } catch (e) { console.error(e); }
+        } else {
+            setImportData("");
+            setSelectedList(null);
+            setDefaultFirstName("");
+        }
+    }
+  }, [activeAccount?.id]);
+
+  const saveDraft = (updates: any) => {
+      if (!activeAccount) return;
+      const currentState = { importData, selectedList, defaultFirstName, ...updates };
+      sessionStorage.setItem(`bm_draft_${activeAccount.id}`, JSON.stringify(currentState));
+  };
+
+  const handleImportDataChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      const val = e.target.value;
+      setImportData(val);
+      saveDraft({ importData: val });
+  };
+
+  const handleListChange = (val: string) => {
+      setSelectedList(val);
+      saveDraft({ selectedList: val });
+  };
+
+  const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const val = e.target.value;
+      setDefaultFirstName(val);
+      saveDraft({ defaultFirstName: val });
+  };
+
   const emailCount = useMemo(() => {
     return importData.split('\n').filter(line => line.trim() !== '').length;
   }, [importData]);
 
-  // --- AUTO-LOAD DRAFT (Benchmark Specific Keys) ---
-  useEffect(() => {
-    if (activeAccount) {
-      const savedList = localStorage.getItem(`draft_bm_list_${activeAccount.id}`);
-      const savedData = localStorage.getItem(`draft_bm_data_${activeAccount.id}`);
-      const savedDelay = localStorage.getItem(`draft_bm_delay_${activeAccount.id}`);
-      const savedName = localStorage.getItem(`draft_bm_def_fname_${activeAccount.id}`);
-
-      if (savedList) setSelectedList(savedList);
-      if (savedData) setImportData(savedData);
-      if (savedDelay) setDelay(Number(savedDelay));
-      if (savedName) setDefaultFirstName(savedName);
-    }
-  }, [activeAccount]);
-
-  // --- AUTO-SAVE DRAFT (Benchmark Specific Keys) ---
-  useEffect(() => {
-    if (activeAccount) {
-      if (selectedList) localStorage.setItem(`draft_bm_list_${activeAccount.id}`, selectedList);
-      localStorage.setItem(`draft_bm_data_${activeAccount.id}`, importData);
-      localStorage.setItem(`draft_bm_delay_${activeAccount.id}`, delay.toString());
-      localStorage.setItem(`draft_bm_def_fname_${activeAccount.id}`, defaultFirstName);
-    }
-  }, [selectedList, importData, delay, defaultFirstName, activeAccount]);
-
-  // --- JOB COMPLETION TOAST ---
-  useEffect(() => {
-    if (activeJob?.status === 'completed') {
-        toast({ 
-            title: "Bulk Import Completed", 
-            description: `Finished processing list: ${activeJob.listName}`,
-            variant: "default"
-        });
-    }
-  }, [activeJob?.status, toast]);
-
-  // --- FETCH BENCHMARK LISTS ---
   useEffect(() => {
     const fetchLists = async () => {
         if (activeAccount && activeAccount.apiKey && activeAccount.provider === 'benchmark') {
@@ -98,7 +150,7 @@ export default function BulkImport() {
                   setLists([]);
                 }
             } catch (error) {
-                toast({ title: "Error", description: "Could not fetch lists.", variant: "destructive" });
+                console.error(error);
             }
         }
     };
@@ -108,14 +160,53 @@ export default function BulkImport() {
   const handleStartImport = () => {
     if (!activeAccount || !selectedList) return;
     const selectedListName = lists.find(a => a.listId === selectedList)?.name || 'Unknown List';
-    startJob(activeAccount.id, selectedList, selectedListName, importData, delay, defaultFirstName);
+    
+    const contacts = importData.split('\n').filter(l => l.trim()).map(line => {
+        const [email, fname, lname] = line.split(',');
+        return {
+            email: email?.trim(),
+            firstName: fname?.trim() || defaultFirstName,
+            lastName: lname?.trim(),
+            listId: selectedList
+        };
+    });
+
+    const currentApiKey = activeAccount.apiKey;
+    const currentListId = selectedList;
+
+    const newJobId = addJob({
+        title: `Benchmark Import ${selectedListName} (${activeAccount.id})`,
+        totalItems: contacts.length,
+        data: contacts,
+        batchSize: 1,
+        apiEndpoint: '/api/benchmark/import/contact',
+        processItem: async (contact) => {
+            if (delay > 0) await new Promise(r => setTimeout(r, delay * 1000));
+            const res = await fetch('/api/benchmark/import/contact', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    apiKey: currentApiKey, 
+                    listId: currentListId,
+                    contact 
+                })
+            });
+            const json = await res.json();
+            if (!res.ok) throw new Error("API Error");
+            return { ...json, email: contact.email };
+        }
+    });
+    
+    setSpecificJobId(newJobId);
     toast({ title: "Job Started", description: "Bulk import is running in background." });
   };
   
-  const isImporting = activeJob && (activeJob.status === 'running' || activeJob.status === 'paused');
   const successCount = activeJob?.results.filter(r => r.status === 'success').length || 0;
-  const failedCount = activeJob?.results.filter(r => r.status === 'failed').length || 0;
-  const remainingCount = activeJob ? activeJob.totalContacts - (successCount + failedCount) : 0;
+  const failedCount = activeJob?.results.filter(r => r.status === 'error').length || 0;
+  const remainingCount = activeJob ? activeJob.totalItems - (successCount + failedCount) : 0;
+  const progress = activeJob && activeJob.totalItems > 0 
+    ? ((successCount + failedCount) / activeJob.totalItems) * 100 
+    : 0;
 
   return (
     <div className="p-6 space-y-6">
@@ -136,7 +227,7 @@ export default function BulkImport() {
              <div className="space-y-4">
                 <div>
                     <Label htmlFor="list">Select List</Label>
-                    <Select value={selectedList || ""} onValueChange={setSelectedList} disabled={!activeAccount || !!isImporting}>
+                    <Select value={selectedList || ""} onValueChange={handleListChange} disabled={!activeAccount || !!isJobActive}>
                         <SelectTrigger>
                             <SelectValue placeholder="Select a list" />
                         </SelectTrigger>
@@ -147,22 +238,21 @@ export default function BulkImport() {
                         </SelectContent>
                     </Select>
                 </div>
-
-                <div className="grid grid-cols-2 gap-4">
+                
+                 <div className="grid grid-cols-2 gap-4">
                     <div>
                         <Label htmlFor="fname">Default First Name</Label>
                         <Input 
                             id="fname" 
                             value={defaultFirstName} 
-                            onChange={(e) => setDefaultFirstName(e.target.value)} 
+                            onChange={handleNameChange} 
                             placeholder="e.g. Subscriber" 
-                            disabled={!!isImporting} 
+                            disabled={!!isJobActive} 
                         />
-                        <p className="text-[10px] text-muted-foreground mt-1">Applied if CSV has no name.</p>
                     </div>
                     <div>
                         <Label htmlFor="delay">Delay (seconds)</Label>
-                        <Input id="delay" type="number" value={delay} onChange={(e) => setDelay(Number(e.target.value))} min="0" disabled={!!isImporting} />
+                        <Input id="delay" type="number" value={delay} onChange={(e) => setDelay(Number(e.target.value))} min="0" disabled={!!isJobActive} />
                     </div>
                 </div>
             </div>
@@ -170,9 +260,10 @@ export default function BulkImport() {
             {activeJob && (
                 <div className="pt-4 space-y-4">
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center p-4 border rounded-lg bg-muted/50">
+                        {/* REPLACED STATUS WITH TIMER */}
                         <div>
-                            <p className="text-xs text-muted-foreground">Time Elapse</p>
-                            <p className="text-lg font-bold font-mono">{formatTime(activeJob.elapsedTime)}</p>
+                            <p className="text-xs text-muted-foreground">Time Elapsed</p>
+                            <p className="text-lg font-bold font-mono">{formatElapsedTime(elapsedSeconds)}</p>
                         </div>
                         <div>
                             <p className="text-xs text-muted-foreground">Success</p>
@@ -188,9 +279,9 @@ export default function BulkImport() {
                         </div>
                     </div>
                     <div>
-                        <Progress value={activeJob.progress} className="h-2" />
-                        <p className="text-sm text-muted-foreground mt-2 text-center">
-                            Job for "{activeJob.listName}" is {activeJob.status}. ({activeJob.progress.toFixed(0)}%)
+                         <Progress value={progress} className="h-2" />
+                         <p className="text-sm text-muted-foreground mt-2 text-center">
+                           {progress.toFixed(0)}% Completed {activeJob.status === 'paused' && <span className="text-yellow-600">(Paused)</span>}
                         </p>
                     </div>
                 </div>
@@ -212,16 +303,16 @@ export default function BulkImport() {
               </div>
               <Textarea
                 id="emails"
-                placeholder="test@example.com,John,Doe&#x0a;another@example.com,Jane,Smith"
+                placeholder="test@example.com,John,Doe"
                 value={importData}
-                onChange={(e) => setImportData(e.target.value)}
+                onChange={handleImportDataChange}
                 className="min-h-[200px] font-mono text-sm"
-                readOnly={!!isImporting}
+                readOnly={!!isJobActive}
               />
             </div>
 
             <div className="flex gap-2">
-              {!isImporting && (
+              {!isJobActive ? (
                 <Button 
                     onClick={handleStartImport} 
                     className="flex-1"
@@ -230,31 +321,26 @@ export default function BulkImport() {
                     <Play className="w-4 h-4 mr-2" />
                     Start Import
                 </Button>
-              )}
-              {isImporting && activeJob?.status === 'running' && (
-                  <Button variant="outline" onClick={() => pauseJob(activeJob.id)} className="flex-1">
-                      <Pause className="w-4 h-4 mr-2"/> Pause
+              ) : (
+                <div className="flex gap-2 w-full">
+                  <Button variant="outline" onClick={() => activeJob?.status === 'paused' ? resumeJob(activeJob.id) : pauseJob(activeJob!.id)} className="flex-1">
+                      {activeJob?.status === 'paused' ? <PlayIcon className="w-4 h-4 mr-2"/> : <Pause className="w-4 h-4 mr-2"/>}
+                      {activeJob?.status === 'paused' ? "Resume" : "Pause"}
                   </Button>
-              )}
-              {isImporting && activeJob?.status === 'paused' && (
-                  <Button variant="outline" onClick={() => resumeJob(activeJob.id)} className="flex-1">
-                      <PlayIcon className="w-4 h-4 mr-2"/> Resume
+                  <Button variant="destructive" onClick={() => stopJob(activeJob!.id)} className="flex-1">
+                      <StopCircle className="w-4 h-4 mr-2"/> End Job
                   </Button>
-              )}
-              {isImporting && (
-                  <Button variant="destructive" onClick={() => cancelJob(activeJob.id)} className="flex-1">
-                      <XCircle className="w-4 h-4 mr-2"/> End Job
-                  </Button>
+                </div>
               )}
             </div>
           </CardContent>
         </Card>
       </div>
 
-        {activeJob && activeJob.results.length > 0 && (
+       {activeJob && activeJob.results.length > 0 && (
             <Card>
                 <CardHeader>
-                    <CardTitle>Import Results for "{activeJob.listName}"</CardTitle>
+                    <CardTitle>Results</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="rounded-md border max-h-[400px] overflow-y-auto">
@@ -264,38 +350,28 @@ export default function BulkImport() {
                           <TableHead className="w-[50px]">#</TableHead>
                           <TableHead>Email</TableHead>
                           <TableHead>Status</TableHead>
-                          <TableHead className="w-[80px]">Details</TableHead>
+                          <TableHead className="text-right">Details</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {activeJob.results.map((result) => (
-                          <TableRow key={result.index}>
-                            <TableCell className="font-medium">{result.index}</TableCell>
-                            <TableCell>{result.email}</TableCell>
+                        {activeJob.results.slice().reverse().map((result, idx) => (
+                          <TableRow key={idx}>
+                            <TableCell className="font-medium">{activeJob.results.length - idx}</TableCell>
+                             <TableCell>{result.data?.email || result.data?.contact?.email || 'Unknown'}</TableCell>
                             <TableCell>
                                <Badge className={cn(result.status === 'success' ? 'bg-green-600' : 'bg-destructive', 'text-white')}>
                                 {result.status}
                                </Badge>
                             </TableCell>
-                            <TableCell>
-                                <Dialog>
-                                    <DialogTrigger asChild>
-                                        <Button variant="ghost" size="icon">
-                                            <FileJson2 className="h-4 w-4" />
-                                            <span className="sr-only">View Details</span>
-                                        </Button>
-                                    </DialogTrigger>
-                                    <DialogContent className="max-w-[800px] w-full max-h-[80vh] flex flex-col">
-                                        <DialogHeader>
-                                            <DialogTitle>Import Details for {result.email}</DialogTitle>
-                                        </DialogHeader>
-                                        <div className="flex-1 overflow-auto rounded-md bg-slate-950 p-4">
-                                            <pre className="text-xs text-white">
-                                                {JSON.stringify(JSON.parse(result.data), null, 2)}
-                                            </pre>
-                                        </div>
-                                    </DialogContent>
-                                </Dialog>
+                            <TableCell className="text-right">
+                                <Button 
+                                    variant="ghost" 
+                                    size="icon" 
+                                    className="h-8 w-8"
+                                    onClick={() => { setDetailsData(result); setDetailsModalOpen(true); }}
+                                >
+                                    <FileJson className="w-4 h-4 text-muted-foreground" />
+                                </Button>
                             </TableCell>
                           </TableRow>
                         ))}
@@ -305,6 +381,18 @@ export default function BulkImport() {
                 </CardContent>
             </Card>
         )}
+
+        <Dialog open={detailsModalOpen} onOpenChange={setDetailsModalOpen}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>API Response Details</DialogTitle>
+                    <DialogDescription>Raw response from Benchmark.</DialogDescription>
+                </DialogHeader>
+                <ScrollArea className="h-[300px] w-full rounded-md border p-4 bg-slate-950 text-slate-50 font-mono text-xs">
+                    <pre>{JSON.stringify(detailsData, null, 2)}</pre>
+                </ScrollArea>
+            </DialogContent>
+        </Dialog>
     </div>
   );
 }

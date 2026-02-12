@@ -1,25 +1,7 @@
 import * as React from "react"
 import { 
-  Users, 
-  Upload, 
-  Settings2, 
-  Activity, 
-  BarChart3, 
-  Mail,
-  Workflow,
-  Send,
-  Plus,
-  ChevronsUpDown,
-  Check,
-  LogOut,
-  Save,
-  Newspaper // <--- ADDED ICON
-} from "lucide-react"
-
-import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
@@ -28,62 +10,62 @@ import {
   SidebarGroupLabel,
   SidebarGroupContent,
   SidebarRail,
+  SidebarFooter
 } from "@/components/ui/sidebar"
-
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog"
-
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Button } from "@/components/ui/button"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { 
+  Plus, 
+  Settings2, 
+  ChevronsUpDown, 
+  Check, 
+  LogOut, 
+  Save, 
+  Activity, 
+  BarChart3, 
+  Send, 
+  Newspaper,
+  LayoutGrid 
+} from "lucide-react"
 import { useAccount, Account } from "@/contexts/AccountContext"
-import { Link, useLocation } from "react-router-dom"
-import { toast } from "@/hooks/use-toast"
+import { Button } from "@/components/ui/button"
+import { AddAccountDialog } from "./AddAccountDialog" 
+import { EditAccountDialog } from "./EditAccountDialog"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { accounts, activeAccount, setActiveAccount, addAccount, updateAccount, deleteAccount } = useAccount()
-  const location = useLocation()
-  
-  // State for Dialogs
   const [isAddOpen, setIsAddOpen] = React.useState(false)
   const [editingAccount, setEditingAccount] = React.useState<Account | null>(null)
 
-  // --- PLATFORM SWITCHING LOGIC ---
-  const handlePlatformClick = (provider: 'activecampaign' | 'benchmark' | 'omnisend' | 'buttondown', targetUrl: string) => {
-    // 1. Check if we are already on this provider
-    if (activeAccount?.provider === provider) {
-      return;
-    }
-
-    // 2. Find the first account of this type
-    const targetAccount = accounts.find(acc => acc.provider === provider);
-
-    if (targetAccount) {
-      // Switch context
-      setActiveAccount(targetAccount);
-      toast({ title: "Switched Account", description: `Active context: ${targetAccount.name}` });
-    } else {
-      // No account found
-      toast({ title: "No Account Found", description: `Please add an ${provider} account first.`, variant: "destructive" });
-      setIsAddOpen(true); 
-    }
+  // --- LOGIC: SWITCH TO SERVICE ---
+  // When clicking a "Service Name", we find the first account of that type and switch to it.
+  const handleServiceClick = (provider: string) => {
+      const target = accounts.find(a => a.provider === provider);
+      if (target) {
+          setActiveAccount(target);
+      } else {
+          // If no account exists, maybe open "Add Account" pre-filled?
+          setIsAddOpen(true);
+      }
   };
+
+  const getServiceIcon = (p: string) => {
+      if (p === 'benchmark') return BarChart3;
+      if (p === 'omnisend') return Send;
+      if (p === 'buttondown') return Newspaper;
+      return Activity;
+  }
+
+  // Define the available services statically or dynamically
+  const services = [
+      { id: 'activecampaign', name: 'ActiveCampaign', icon: Activity },
+      { id: 'benchmark', name: 'Benchmark Email', icon: BarChart3 },
+      { id: 'buttondown', name: 'Buttondown', icon: Newspaper },
+      { id: 'omnisend', name: 'Omnisend', icon: Send },
+  ];
 
   return (
     <Sidebar collapsible="icon" {...props}>
@@ -97,136 +79,36 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       </SidebarHeader>
 
       <SidebarContent>
-        
-        {/* --- ACTIVECAMPAIGN GROUP --- */}
         <SidebarGroup>
-          <SidebarGroupLabel>ActiveCampaign</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarItem 
-                title="Bulk Import" 
-                url="/" 
-                icon={Upload} 
-                isActive={location.pathname === "/" && activeAccount?.provider === 'activecampaign'}
-                onClick={() => handlePlatformClick('activecampaign', '/')}
-              />
-              <SidebarItem 
-                title="User Management" 
-                url="/users" 
-                icon={Users} 
-                isActive={location.pathname === "/users" && activeAccount?.provider === 'activecampaign'}
-                onClick={() => handlePlatformClick('activecampaign', '/users')}
-              />
-              <SidebarItem 
-                title="Automations" 
-                url="/automation" 
-                icon={Workflow} 
-                isActive={location.pathname === "/automation" && activeAccount?.provider === 'activecampaign'}
-                onClick={() => handlePlatformClick('activecampaign', '/automation')}
-              />
-            </SidebarMenu>
-          </SidebarGroupContent>
+            <SidebarGroupLabel>Services</SidebarGroupLabel>
+            <SidebarGroupContent>
+                <SidebarMenu>
+                    {services.map(service => {
+                        const hasAccount = accounts.some(a => a.provider === service.id);
+                        const isActive = activeAccount?.provider === service.id;
+                        
+                        return (
+                            <SidebarMenuItem key={service.id}>
+                                <SidebarMenuButton 
+                                    isActive={isActive}
+                                    onClick={() => handleServiceClick(service.id)}
+                                    tooltip={service.name}
+                                    className={!hasAccount ? "opacity-50" : ""}
+                                >
+                                    <service.icon />
+                                    <span>{service.name}</span>
+                                    {!hasAccount && <span className="ml-auto text-[10px] text-muted-foreground">(No Acc)</span>}
+                                </SidebarMenuButton>
+                            </SidebarMenuItem>
+                        )
+                    })}
+                </SidebarMenu>
+            </SidebarGroupContent>
         </SidebarGroup>
-
-        <div className="px-4 py-2"><div className="h-[1px] bg-sidebar-border" /></div>
-
-        {/* --- BENCHMARK GROUP --- */}
-        <SidebarGroup>
-          <SidebarGroupLabel>Benchmark Email</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarItem 
-                title="Bulk Import" 
-                url="/" 
-                icon={Upload} 
-                isActive={location.pathname === "/" && activeAccount?.provider === 'benchmark'}
-                onClick={() => handlePlatformClick('benchmark', '/')}
-              />
-              <SidebarItem 
-                title="User Management" 
-                url="/users" 
-                icon={Users} 
-                isActive={location.pathname === "/users" && activeAccount?.provider === 'benchmark'}
-                onClick={() => handlePlatformClick('benchmark', '/users')}
-              />
-              <SidebarItem 
-                title="Automations" 
-                url="/automation" 
-                icon={Workflow} 
-                isActive={location.pathname === "/automation" && activeAccount?.provider === 'benchmark'}
-                onClick={() => handlePlatformClick('benchmark', '/automation')}
-              />
-              <SidebarItem 
-                title="Emails / Campaigns" 
-                url="/emails" 
-                icon={Mail} 
-                isActive={location.pathname === "/emails" && activeAccount?.provider === 'benchmark'}
-                onClick={() => handlePlatformClick('benchmark', '/emails')}
-              />
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <div className="px-4 py-2"><div className="h-[1px] bg-sidebar-border" /></div>
-
-        {/* --- BUTTONDOWN GROUP (NEW) --- */}
-        <SidebarGroup>
-          <SidebarGroupLabel>Buttondown</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-               <SidebarItem 
-                title="Bulk Import" 
-                url="/" 
-                icon={Upload} 
-                isActive={location.pathname === "/" && activeAccount?.provider === 'buttondown'}
-                onClick={() => handlePlatformClick('buttondown', '/')}
-              />
-              <SidebarItem 
-                title="Subscribers" 
-                url="/users" 
-                icon={Users} 
-                isActive={location.pathname === "/users" && activeAccount?.provider === 'buttondown'}
-                onClick={() => handlePlatformClick('buttondown', '/users')}
-              />
-              <SidebarItem 
-                title="Emails / Analytics" 
-                url="/emails" 
-                icon={BarChart3} 
-                isActive={location.pathname === "/emails" && activeAccount?.provider === 'buttondown'}
-                onClick={() => handlePlatformClick('buttondown', '/emails')}
-              />
-              <SidebarItem 
-                title="Send Email" 
-                url="/send" 
-                icon={Send} 
-                isActive={location.pathname === "/send" && activeAccount?.provider === 'buttondown'}
-                onClick={() => handlePlatformClick('buttondown', '/send')}
-              />
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <div className="px-4 py-2"><div className="h-[1px] bg-sidebar-border" /></div>
-
-        {/* --- OMNISEND GROUP --- */}
-        <SidebarGroup>
-          <SidebarGroupLabel>Omnisend</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-               <SidebarItem 
-                title="Bulk Import" 
-                url="/" 
-                icon={Upload} 
-                isActive={location.pathname === "/" && activeAccount?.provider === 'omnisend'}
-                onClick={() => handlePlatformClick('omnisend', '/')}
-              />
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
       </SidebarContent>
 
       <SidebarFooter>
+        {/* --- ACCOUNT SWITCHER (BOTTOM) --- */}
         <AccountSwitcher 
             accounts={accounts} 
             activeAccount={activeAccount} 
@@ -238,16 +120,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       
       <SidebarRail />
 
-      {/* --- DIALOGS --- */}
-      <AddAccountDialog 
-        open={isAddOpen} 
-        onOpenChange={setIsAddOpen} 
-        onAdd={addAccount}
-      />
-
+      {/* DIALOGS */}
+      <AddAccountDialog open={isAddOpen} onOpenChange={setIsAddOpen} onAdd={addAccount} />
+      
       {editingAccount && (
-        <EditAccountDialog
-            open={!!editingAccount}
+        <EditAccountDialog 
+            open={!!editingAccount} 
             onOpenChange={(open: boolean) => !open && setEditingAccount(null)}
             account={editingAccount}
             onUpdate={updateAccount}
@@ -258,34 +136,28 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   )
 }
 
-// --- HELPER COMPONENTS ---
-
-function SidebarItem({ title, url, icon: Icon, isActive, onClick }: any) {
-    return (
-        <SidebarMenuItem>
-            <SidebarMenuButton asChild isActive={isActive} onClick={onClick}>
-                <Link to={url}>
-                    <Icon />
-                    <span>{title}</span>
-                </Link>
-            </SidebarMenuButton>
-        </SidebarMenuItem>
-    )
-}
-
+// --- HELPER: ACCOUNT SWITCHER ---
 function AccountSwitcher({ accounts, activeAccount, setActiveAccount, onAdd, onEdit }: any) {
     const getIcon = (provider?: string) => {
         if (provider === 'benchmark') return <BarChart3 className="size-4" />;
         if (provider === 'omnisend') return <Send className="size-4" />;
-        if (provider === 'buttondown') return <Newspaper className="size-4" />; // <--- BUTTONDOWN ICON
+        if (provider === 'buttondown') return <Newspaper className="size-4" />;
         return <Activity className="size-4" />;
     }
 
-    // --- SMART DROPDOWN LOGIC ---
+    // Only show accounts for the CURRENT active provider
     const displayedAccounts = React.useMemo(() => {
-        if (!activeAccount) return accounts;
+        if (!activeAccount) return [];
         return accounts.filter((acc: Account) => acc.provider === activeAccount.provider);
     }, [accounts, activeAccount]);
+
+    if (!activeAccount) return (
+        <div className="p-4">
+            <Button variant="outline" className="w-full" onClick={onAdd}>
+                <Plus className="mr-2 h-4 w-4"/> Add Account
+            </Button>
+        </div>
+    );
 
     return (
         <SidebarMenu>
@@ -297,14 +169,14 @@ function AccountSwitcher({ accounts, activeAccount, setActiveAccount, onAdd, onE
                   className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground border-t rounded-none pt-4 pb-4 h-auto"
                 >
                   <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-                    {getIcon(activeAccount?.provider)}
+                    {getIcon(activeAccount.provider)}
                   </div>
                   <div className="grid flex-1 text-left text-sm leading-tight">
                     <span className="truncate font-semibold">
-                      {activeAccount ? activeAccount.name : "Select Account"}
+                      {activeAccount.name}
                     </span>
                     <span className="truncate text-xs text-muted-foreground">
-                       {activeAccount ? "Switch Account" : "No Active Session"}
+                       {activeAccount.provider}
                     </span>
                   </div>
                   <ChevronsUpDown className="ml-auto" />
@@ -317,34 +189,30 @@ function AccountSwitcher({ accounts, activeAccount, setActiveAccount, onAdd, onE
                 sideOffset={4}
               >
                  <DropdownMenuLabel className="text-xs font-bold text-muted-foreground">
-                    {activeAccount ? `Switch ${activeAccount.provider} Account` : 'Select Account'}
+                    Switch {activeAccount.provider} Account
                  </DropdownMenuLabel>
                  <div className="max-h-[300px] overflow-y-auto">
-                    {displayedAccounts.length === 0 ? (
-                         <div className="p-2 text-sm text-muted-foreground">No other accounts found.</div>
-                    ) : (
-                        displayedAccounts.map((acc: Account) => (
-                             <DropdownMenuItem 
-                                key={acc.id} 
-                                onClick={() => setActiveAccount(acc)}
-                                className="flex items-center justify-between gap-2 cursor-pointer"
-                             >
-                                <div className="flex items-center gap-2 overflow-hidden">
-                                     {getIcon(acc.provider)}
-                                     <span className="truncate">{acc.name}</span>
-                                </div>
-                                {activeAccount?.id === acc.id && <Check className="h-4 w-4 opacity-50" />}
-                                <Button 
-                                    variant="ghost" 
-                                    size="icon" 
-                                    className="h-5 w-5 ml-auto"
-                                    onClick={(e) => { e.stopPropagation(); onEdit(acc); }}
-                                >
-                                    <Settings2 className="h-3 w-3" />
-                                </Button>
-                             </DropdownMenuItem>
-                        ))
-                    )}
+                    {displayedAccounts.map((acc: Account) => (
+                         <DropdownMenuItem 
+                            key={acc.id} 
+                            onClick={() => setActiveAccount(acc)}
+                            className="flex items-center justify-between gap-2 cursor-pointer"
+                         >
+                            <div className="flex items-center gap-2 overflow-hidden">
+                                 {getIcon(acc.provider)}
+                                 <span className="truncate">{acc.name}</span>
+                            </div>
+                            {activeAccount.id === acc.id && <Check className="h-4 w-4 opacity-50" />}
+                            <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                className="h-5 w-5 ml-auto"
+                                onClick={(e) => { e.stopPropagation(); onEdit(acc); }}
+                            >
+                                <Settings2 className="h-3 w-3" />
+                            </Button>
+                         </DropdownMenuItem>
+                    ))}
                  </div>
                  <DropdownMenuSeparator />
                  <DropdownMenuItem onClick={onAdd} className="gap-2 p-2 cursor-pointer text-blue-600 focus:text-blue-600">
@@ -357,6 +225,8 @@ function AccountSwitcher({ accounts, activeAccount, setActiveAccount, onAdd, onE
         </SidebarMenu>
     )
 }
+
+// --- DIALOGS (Copied from your previous code) ---
 
 function AddAccountDialog({ open, onOpenChange, onAdd }: any) {
     const [provider, setProvider] = React.useState('activecampaign')
@@ -390,7 +260,7 @@ function AddAccountDialog({ open, onOpenChange, onAdd }: any) {
                                 <SelectItem value="activecampaign">ActiveCampaign</SelectItem>
                                 <SelectItem value="benchmark">Benchmark Email</SelectItem>
                                 <SelectItem value="omnisend">Omnisend</SelectItem>
-                                <SelectItem value="buttondown">Buttondown</SelectItem> {/* <--- ADDED BUTTONDOWN */}
+                                <SelectItem value="buttondown">Buttondown</SelectItem> 
                             </SelectContent>
                         </Select>
                     </div>

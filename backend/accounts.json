@@ -22,9 +22,23 @@
   },
   {
     "id": "acc_1770760764557_7b71",
-    "name": "1 omnisend",
+    "name": "1",
     "apiKey": "68d9630c7155333203e3eef3-jZT0gT0B05pIM2AdYL5059hbOQZje8ZjE5stfGvJ173XqQlM0s",
     "apiUrl": "",
     "provider": "omnisend"
+  },
+  {
+    "id": "acc_1770788540769_24ee",
+    "name": "1",
+    "apiKey": "9286ff6b-b82f-4f1a-b243-4a17bd57eea1",
+    "apiUrl": "",
+    "provider": "buttondown"
+  },
+  {
+    "id": "acc_1770788893558_26e8",
+    "name": "2",
+    "apiKey": "b296167f-4c09-4d6f-aae5-6478a2c4c8b4",
+    "apiUrl": "",
+    "provider": "buttondown"
   }
 ]
