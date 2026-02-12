@@ -27,7 +27,7 @@ function formatElapsedTime(seconds: number) {
 
 export default function ButtondownBulkImport() {
   const { activeAccount } = useAccount();
-  const { jobs, addJob, pauseJob, resumeJob, removeJob } = useJob();
+  const { jobs, addJob, pauseJob, resumeJob, removeJob, getActiveJobForAccount } = useJob();
   
   // Track the ID of the specific job we just started
   const [specificJobId, setSpecificJobId] = useState<string | null>(null);
@@ -35,24 +35,18 @@ export default function ButtondownBulkImport() {
   // --- SMART JOB SELECTION ---
   const currentJob = useMemo(() => {
      if (!activeAccount) return null;
-
-     // 1. If we have a specific ID we are tracking, prioritize it
-     if (specificJobId) {
-         const found = jobs.find(j => j.id === specificJobId);
-         if (found) return found;
+     
+     // New helper logic
+     if (getActiveJobForAccount) {
+         return getActiveJobForAccount(activeAccount.id);
      }
 
-     // 2. Find all jobs for this account
-     const accountJobs = jobs.filter(j => j.title.includes(activeAccount.id));
+     // Fallback logic
+     const accountJobs = jobs.filter(j => j.accountId === activeAccount.id);
      if (accountJobs.length === 0) return null;
-
-     // 3. Find active (running/pending/paused)
      const active = accountJobs.find(j => ['processing', 'pending', 'paused'].includes(j.status));
-     if (active) return active;
-
-     // 4. Default to the most recently created one
-     return accountJobs[accountJobs.length - 1];
-  }, [jobs, activeAccount, specificJobId]);
+     return active || accountJobs[accountJobs.length - 1];
+  }, [jobs, activeAccount, specificJobId, getActiveJobForAccount]);
 
 
   // --- TIMER LOGIC ---
@@ -65,9 +59,18 @@ export default function ButtondownBulkImport() {
 
   const elapsedSeconds = useMemo(() => {
       if (!currentJob) return 0;
-      const isDone = currentJob.status === 'completed' || currentJob.status === 'failed';
-      const end = (isDone && currentJob.endTime) ? currentJob.endTime : now;
-      return Math.floor((end - currentJob.startTime) / 1000);
+      
+      const isDone = ['completed', 'failed', 'stopped'].includes(currentJob.status);
+      const endTime = (isDone && currentJob.endTime) ? currentJob.endTime : now;
+      
+      let duration = endTime - currentJob.startTime;
+      duration -= (currentJob.totalPausedTime || 0);
+
+      if (currentJob.status === 'paused' && currentJob.pauseStartTime) {
+          duration -= (now - currentJob.pauseStartTime);
+      }
+
+      return Math.max(0, Math.floor(duration / 1000));
   }, [currentJob, now]);
 
 
@@ -87,10 +90,13 @@ export default function ButtondownBulkImport() {
   const [detailsModalOpen, setDetailsModalOpen] = useState(false);
   const [detailsData, setDetailsData] = useState<any>(null);
 
-  // --- 0. RESET FORM ON ACCOUNT SWITCH ---
+  // --- 0. RESET FORM & RESTORE DATA ON ACCOUNT SWITCH ---
   useEffect(() => {
       if (activeAccount) {
-          setTextInput("");
+          // Restore text from storage
+          const savedText = sessionStorage.getItem(`bd_bulk_input_${activeAccount.id}`);
+          setTextInput(savedText || "");
+
           setTags("");
           setSenderName("");
           setNewsletterId(null);
@@ -99,6 +105,15 @@ export default function ButtondownBulkImport() {
           fetchEmails();
       }
   }, [activeAccount?.id]); 
+
+  // --- HANDLER: SAVE TEXT ON CHANGE ---
+  const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      const val = e.target.value;
+      setTextInput(val);
+      if (activeAccount) {
+          sessionStorage.setItem(`bd_bulk_input_${activeAccount.id}`, val);
+      }
+  };
 
   // --- 1. FETCH DATA ---
   const fetchNewsletterInfo = async () => {
@@ -171,8 +186,9 @@ export default function ButtondownBulkImport() {
     const currentApiKey = activeAccount?.apiKey;
     const currentEmailId = selectedEmailId;
 
+    // Use addJob with accountId binding
     const newJobId = addJob({
-      title: `Buttondown Import (${activeAccount?.id})`,
+      title: `Buttondown Import`,
       totalItems: contacts.length,
       data: contacts,
       batchSize: 1, 
@@ -195,7 +211,7 @@ export default function ButtondownBulkImport() {
         
         return { ...json, email: contact.email };
       }
-    });
+    }, activeAccount.id); // <--- BIND TO ACCOUNT
 
     setSpecificJobId(newJobId);
     toast({ title: "Job Started", description: `${contacts.length} contacts queued.` });
@@ -204,7 +220,6 @@ export default function ButtondownBulkImport() {
   // --- 3. UI HELPERS ---
   const emailCount = textInput.split(/[\n,]+/).filter(e => e.trim().length > 0).length;
   
-  // FIX: This flag now includes 'paused' so the UI doesn't switch back to "Start" when paused
   const isJobActive = currentJob && ['processing', 'paused'].includes(currentJob.status);
   
   const successCount = currentJob?.results.filter(r => r.status === 'success').length || 0;
@@ -259,7 +274,7 @@ export default function ButtondownBulkImport() {
                     placeholder="user@example.com&#10;user2@example.com, John Doe" 
                     rows={8} 
                     value={textInput}
-                    onChange={e => setTextInput(e.target.value)}
+                    onChange={handleTextChange} // <--- Saving on Change
                     className="font-mono"
                     disabled={isJobActive}
                 />

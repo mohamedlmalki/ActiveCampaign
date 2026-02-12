@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Check, ChevronsUpDown, AlertCircle, Loader2, StopCircle, CheckCircle2 } from "lucide-react";
+import { Check, ChevronsUpDown, AlertCircle, Loader2, StopCircle, CheckCircle2, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -13,15 +13,23 @@ export function CampaignStatusSelect() {
     const { accounts, activeAccount, setActiveAccount } = useAccount();
     const [open, setOpen] = useState(false);
 
-    // --- 1. GROUP JOBS BY ACCOUNT ---
+    // --- 1. GROUP JOBS BY ACCOUNT (GLOBAL) ---
+    // This finds the *latest* job for EVERY account that has history
     const latestAccountJobs = useMemo(() => {
         const map = new Map();
         // Sort jobs by start time (newest first)
-        const sortedJobs = [...jobs].sort((a, b) => b.startTime - a.startTime);
+        const sortedJobs = [...jobs].sort((a, b) => (b.startTime || 0) - (a.startTime || 0));
 
         sortedJobs.forEach(job => {
-            const account = accounts.find(a => job.title.includes(a.id));
+            // Find the account this job belongs to
+            // Check both specific accountId (new) and title text (legacy fallback)
+            const account = accounts.find(a => 
+                (job.accountId === a.id) || 
+                (job.title && job.title.includes(a.id))
+            );
+
             if (account) {
+                // Only keep the most recent job for each account
                 if (!map.has(account.id)) {
                     map.set(account.id, { job, account });
                 }
@@ -35,11 +43,11 @@ export function CampaignStatusSelect() {
     const displayItem = useMemo(() => {
         if (latestAccountJobs.length === 0) return null;
 
-        // Priority 1: Job for the CURRENT active account
+        // Priority 1: Job for the CURRENT active account (Context sensitive)
         const currentAccountJob = latestAccountJobs.find(item => item.account.id === activeAccount?.id);
         if (currentAccountJob) return currentAccountJob;
 
-        // Priority 2: Any job that is actively RUNNING
+        // Priority 2: Any job that is actively RUNNING (Global notification)
         const runningJob = latestAccountJobs.find(item => item.job.status === 'processing');
         if (runningJob) return runningJob;
 
@@ -75,8 +83,11 @@ export function CampaignStatusSelect() {
     // --- EMPTY STATE ---
     if (!selectedJob || !selectedAccount) {
         return (
-            <Button variant="outline" className="w-[340px] justify-between text-muted-foreground opacity-50 cursor-not-allowed">
-                <span className="text-xs">No recent activity</span>
+            <Button variant="outline" className="w-[340px] justify-between text-muted-foreground opacity-50 cursor-not-allowed h-auto py-2 px-3 bg-background">
+                <div className="flex flex-col items-start text-left w-full gap-1">
+                    <span className="font-semibold text-sm">No recent activity</span>
+                    <span className="text-xs">Start an import to see progress</span>
+                </div>
                 <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
             </Button>
         );
@@ -86,6 +97,21 @@ export function CampaignStatusSelect() {
         ? (selectedJob.processedItems / selectedJob.totalItems) * 100 
         : 0;
 
+    // Helper for Provider Label (e.g. ActiveCampaign -> AC)
+    const getProviderLabel = (p: string) => {
+        if (p === 'activecampaign') return 'ActiveCampaign';
+        if (p === 'buttondown') return 'Buttondown';
+        if (p === 'benchmark') return 'BenchMark';
+        if (p === 'omnisend') return 'Omnisend';
+        return p.substring(0, 2).toUpperCase();
+    };
+
+    const getProviderColor = (p: string) => {
+        if (p === 'activecampaign') return "border-blue-200 text-blue-600 bg-blue-50";
+        if (p === 'buttondown') return "border-indigo-200 text-indigo-600 bg-indigo-50";
+        return "border-orange-200 text-orange-600 bg-orange-50";
+    };
+
     return (
         <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger asChild>
@@ -94,7 +120,7 @@ export function CampaignStatusSelect() {
                         {/* Top Line: Account Name (Dynamic) */}
                         <div className="flex justify-between w-full items-center">
                             <span className="font-semibold text-sm truncate max-w-[200px]">
-                                {selectedAccount.name} <span className="text-muted-foreground font-normal text-xs">- {selectedAccount.provider}</span>
+                                {selectedAccount.name} <span className="text-muted-foreground font-normal text-xs capitalize">- {selectedAccount.provider}</span>
                             </span>
                             {/* Status Badge */}
                             <Badge variant="outline" className={cn("text-[10px] h-5 px-1.5 capitalize gap-1", getStatusColor(selectedJob.status))}>
@@ -132,7 +158,7 @@ export function CampaignStatusSelect() {
                     <CommandInput placeholder="Search active jobs..." />
                     <CommandList>
                         <CommandEmpty>No recent jobs found.</CommandEmpty>
-                        <CommandGroup heading="Recent Jobs">
+                        <CommandGroup heading="Recent Jobs (All Accounts)">
                             {latestAccountJobs.map(({ job, account }) => {
                                 // Check if this is the currently "Viewed" account in the main app
                                 const isCurrentContext = account.id === activeAccount?.id;
@@ -150,12 +176,12 @@ export function CampaignStatusSelect() {
                                     >
                                         <div className="flex justify-between w-full items-center mb-1">
                                             <div className="flex items-center gap-2 overflow-hidden">
-                                                <span className="font-medium text-sm truncate">
+                                                <span className="font-medium text-sm truncate max-w-[150px]">
                                                     {account.name}
                                                 </span>
-                                                <span className="text-xs text-muted-foreground truncate">
-                                                    - {account.provider}
-                                                </span>
+                                                <Badge variant="outline" className={cn("text-[10px] h-4 px-1", getProviderColor(account.provider))}>
+                                                    {getProviderLabel(account.provider)}
+                                                </Badge>
                                             </div>
                                             {isCurrentContext && <Check className="h-4 w-4 text-primary ml-auto" />}
                                         </div>

@@ -22,6 +22,7 @@ type FilterStatus = 'all' | 'success' | 'failed';
 
 // Helper to format time
 const formatTime = (seconds: number) => {
+    if (isNaN(seconds) || seconds < 0) return "00:00";
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
@@ -29,8 +30,8 @@ const formatTime = (seconds: number) => {
 
 const OmnisendBulkImport = () => {
     const { activeAccount: selectedAccount } = useAccount();
-    // <--- FIXED DESTRUCTURING
-    const { jobs, addJob, pauseJob, resumeJob, removeJob } = useJob();
+    // FIXED: Use getActiveJobForAccount to ensure we see the correct job
+    const { getActiveJobForAccount, startJob, addJob, pauseJob, resumeJob, stopJob, removeJob } = useJob();
 
     // Local State
     const [emailListInput, setEmailListInput] = useState('');
@@ -41,17 +42,17 @@ const OmnisendBulkImport = () => {
     const [viewDetails, setViewDetails] = useState<any | null>(null);
     const [isDetailsOpen, setIsDetailsOpen] = useState(false);
     
-    // Ticker
-    const [, setTicker] = useState(0);
+    // Ticker for live time updates
+    const [now, setNow] = useState(Date.now());
 
     // Job Logic
     const currentJob = useMemo(() => {
         if (!selectedAccount) return null;
-        // Find job by title tag since we don't have explicit accountId in the simple Job interface
-        return jobs.find(j => j.title.includes(selectedAccount.id)) || null;
-    }, [jobs, selectedAccount]);
+        // FIXED: Get job specifically for this account
+        return getActiveJobForAccount(selectedAccount.id);
+    }, [selectedAccount, getActiveJobForAccount]);
 
-    const isRunning = currentJob?.status === 'processing'; // <--- CHANGED TO PROCESSING
+    const isRunning = currentJob?.status === 'processing';
     const isPaused = currentJob?.status === 'paused';
     const isWorking = isRunning || isPaused;
 
@@ -59,6 +60,11 @@ const OmnisendBulkImport = () => {
     // Load saved state on account switch or mount
     useEffect(() => {
         if (selectedAccount) {
+            // Restore Delay if job exists
+            if (currentJob && currentJob.delay) { 
+                setDelayInput(currentJob.delay);
+            }
+            
             // Always try to restore draft text from Session Storage
             const savedDraft = sessionStorage.getItem(`omnisend_draft_${selectedAccount.id}`);
             if (savedDraft) {
@@ -69,19 +75,31 @@ const OmnisendBulkImport = () => {
         } else {
             setEmailListInput('');
         }
-    }, [selectedAccount]);
+    }, [selectedAccount?.id]); // Only re-run when ID changes
 
-    // Timer
+    // Timer Interval
     useEffect(() => {
-        let timer: NodeJS.Timeout | undefined;
-        if (isRunning) {
-            timer = setInterval(() => setTicker(prev => prev + 1), 1000);
-        }
+        const timer = setInterval(() => setNow(Date.now()), 1000);
         return () => clearInterval(timer);
-    }, [isRunning]);
+    }, []);
     
-    // Mock elapsed time since simple context doesn't track it
-    const elapsedTime = 0; 
+    // --- 2. FIXED ELAPSED TIME CALCULATION ---
+    const elapsedTime = useMemo(() => {
+        if (!currentJob) return 0;
+        
+        const isDone = ['completed', 'failed', 'stopped'].includes(currentJob.status);
+        const endTime = (isDone && currentJob.endTime) ? currentJob.endTime : now;
+        
+        let duration = endTime - currentJob.startTime;
+        duration -= (currentJob.totalPausedTime || 0);
+
+        if (currentJob.status === 'paused' && currentJob.pauseStartTime) {
+            duration -= (now - currentJob.pauseStartTime);
+        }
+
+        return Math.max(0, Math.floor(duration / 1000));
+    }, [currentJob, now]);
+
     const emailCount = useMemo(() => emailListInput.split(/[\n,;]+/).filter(Boolean).length, [emailListInput]);
 
     // Handlers
@@ -89,7 +107,7 @@ const OmnisendBulkImport = () => {
         const newValue = e.target.value;
         setEmailListInput(newValue);
         
-        // --- 2. SAVE ON TYPE ---
+        // --- SAVE ON TYPE ---
         if (selectedAccount) {
             sessionStorage.setItem(`omnisend_draft_${selectedAccount.id}`, newValue);
         }
@@ -105,58 +123,52 @@ const OmnisendBulkImport = () => {
             return;
         }
         
-        // Parse contacts
-        const contacts = emailListInput.split(/[\n,;]+/).filter(Boolean).map(e => ({ email: e.trim() }));
+        // Prepare Data
+        const contacts = emailListInput.split(/[\n,;]+/).filter(Boolean).map(line => {
+            const [email, firstName] = line.trim().split(/\s+|,/);
+            return { email, firstName };
+        });
 
-        // <--- USE addJob INSTEAD OF startJob
+        const apiKey = selectedAccount.apiKey;
+
+        // FIXED: Add Job using new Context API signature
         addJob({
-            title: `Omnisend Import (${selectedAccount.id})`,
+            title: `Omnisend Import`,
             totalItems: contacts.length,
             data: contacts,
+            apiEndpoint: 'omnisend',
             batchSize: 1,
-            apiEndpoint: '/api/omnisend/import/contact',
             processItem: async (contact) => {
-                 if (delayInput > 0) await new Promise(r => setTimeout(r, delayInput * 1000));
-                 
-                 const res = await fetch('/api/omnisend/import/contact', {
+                if (delayInput > 0) await new Promise(r => setTimeout(r, delayInput * 1000));
+                
+                const res = await fetch('/api/omnisend/import/contact', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        apiKey: selectedAccount.apiKey, 
-                        contact: contact
-                    })
+                    body: JSON.stringify({ apiKey, contact })
                 });
-
-                if (!res.ok) {
-                     const err = await res.json();
-                     throw new Error(err.error || "Failed");
-                }
-                return await res.json();
+                
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || "Failed");
+                return { ...data, email: contact.email };
             }
-        });
+        }, selectedAccount.id); // <--- Bind to account ID
         
         toast({ title: 'Job Started', description: `Starting import for ${selectedAccount.name}...` });
     };
 
     const handleStopJob = () => {
         if (!currentJob) return;
-        removeJob(currentJob.id); // <--- CHANGED TO removeJob
+        stopJob(currentJob.id); // Use stopJob from context
         toast({ title: 'Job Stopped', description: `Import has been stopped.` });
     };
 
     const handleExport = () => {
-        if (!currentJob) return;
-        const resultsToExport = filteredResults; // uses memoized results
-        
-        const textData = resultsToExport.map(r => 
-            `${r.data?.email || 'unknown'},${r.status}`
-        ).join('\n');
-
-        if (!textData) {
-            toast({ title: 'Export Failed', description: "No data to export.", variant: "destructive" });
+        const emailsToExport = filteredResults.map(result => result.data?.email || result.data?.contact?.email).join('\n');
+        if (!emailsToExport) {
+            toast({ title: 'Export Failed', description: "No emails to export.", variant: "destructive" });
             return;
         }
-        const blob = new Blob([textData], { type: 'text/plain;charset=utf-8' });
+        const blob = new Blob([emailsToExport], { type: 'text/plain;charset=utf-8' });
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
         link.download = `omnisend_export_${selectedAccount?.name}_${filter}.txt`;
@@ -168,31 +180,19 @@ const OmnisendBulkImport = () => {
     // Filter Logic
     const filteredResults = useMemo(() => {
         if (!currentJob) return [];
-        // Map job results to the format expected by this component
-        // The context returns { status: 'success'|'error', data: ..., error: ... }
-        // We map 'error' status to 'failed' for this component's filter logic
-        return currentJob.results.map((r, idx) => ({
-            index: idx + 1,
-            email: r.data?.data?.email || r.data?.email || "Unknown", 
-            status: r.status === 'error' ? 'failed' : 'success',
-            data: JSON.stringify(r.data || r.error)
-        })).filter(result => {
-             if (filter === 'all') return true;
-             return result.status === filter;
-        });
+        if (filter === 'all') return currentJob.results;
+        return currentJob.results.filter(result => result.status === filter); // Assuming result.status is 'success' or 'error' (mapped from context)
     }, [currentJob, filter]);
 
     const { successCount, errorCount } = useMemo(() => {
         if (!currentJob) return { successCount: 0, errorCount: 0 };
         return {
             successCount: currentJob.results.filter(r => r.status === 'success').length,
-            errorCount: currentJob.results.filter(r => r.status === 'error').length,
+            errorCount: currentJob.results.filter(r => r.status === 'error' || r.status === 'failed').length,
         };
     }, [currentJob]);
 
-    const progress = currentJob && currentJob.totalItems > 0 
-        ? ((currentJob.processedItems / currentJob.totalItems) * 100) 
-        : 0;
+    const progress = currentJob && currentJob.totalItems > 0 ? (currentJob.processedItems / currentJob.totalItems) * 100 : 0;
 
     return (
         <div className="p-6 max-w-[1600px] mx-auto animate-in fade-in duration-500 h-[calc(100vh-60px)] flex flex-col">
@@ -367,10 +367,10 @@ const OmnisendBulkImport = () => {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {filteredResults.length > 0 ? filteredResults.map((result) => (
-                                        <TableRow key={result.index} className="h-9">
-                                            <TableCell className="text-xs font-mono text-muted-foreground py-1">{result.index}</TableCell>
-                                            <TableCell className="text-xs font-medium py-1">{result.email}</TableCell>
+                                    {filteredResults.length > 0 ? filteredResults.map((result, idx) => (
+                                        <TableRow key={idx} className="h-9">
+                                            <TableCell className="text-xs font-mono text-muted-foreground py-1">{filteredResults.length - idx}</TableCell>
+                                            <TableCell className="text-xs font-medium py-1">{result.data?.email || 'Unknown'}</TableCell>
                                             <TableCell className="py-1">
                                                 {result.status === 'success' ? (
                                                     <Badge variant="outline" className="text-[10px] bg-green-50 text-green-700 border-green-200 h-5 px-1.5 gap-1">
@@ -415,12 +415,12 @@ const OmnisendBulkImport = () => {
                             <FileJson className="h-5 w-5 text-primary" /> Response Details
                         </DialogTitle>
                         <DialogDescription>
-                            API Response for <b>{viewDetails?.email}</b>
+                            API Response for <b>{viewDetails?.data?.email}</b>
                         </DialogDescription>
                     </DialogHeader>
                     <ScrollArea className="h-[300px] w-full rounded-md border p-4 bg-slate-950 text-slate-50">
                         <pre className="text-xs font-mono whitespace-pre-wrap break-all">
-                            {viewDetails?.data}
+                            {JSON.stringify(viewDetails?.data || {}, null, 2)}
                         </pre>
                     </ScrollArea>
                 </DialogContent>

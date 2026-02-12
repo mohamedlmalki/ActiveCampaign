@@ -21,7 +21,6 @@ interface List {
     name: string;
 }
 
-// Helper to format time
 function formatElapsedTime(seconds: number) {
   if (isNaN(seconds) || seconds < 0) return "00:00:00";
   const h = Math.floor(seconds / 3600).toString().padStart(2, '0');
@@ -33,23 +32,15 @@ function formatElapsedTime(seconds: number) {
 export default function BulkImport() {
   const { activeAccount } = useAccount();
   const { toast } = useToast();
-  const { jobs, addJob, pauseJob, resumeJob, stopJob } = useJob(); 
+  const { addJob, pauseJob, resumeJob, stopJob, getActiveJobForAccount } = useJob(); 
   
   const [specificJobId, setSpecificJobId] = useState<string | null>(null);
 
-  // --- SMART JOB SELECTION ---
+  // --- SMART JOB SELECTION (FIXED) ---
   const activeJob = useMemo(() => {
      if (!activeAccount) return null;
-     if (specificJobId) {
-         const found = jobs.find(j => j.id === specificJobId);
-         if (found) return found;
-     }
-     const accountJobs = jobs.filter(j => j.title.includes(activeAccount.id));
-     if (accountJobs.length === 0) return null;
-     const active = accountJobs.find(j => ['processing', 'pending', 'paused'].includes(j.status));
-     if (active) return active;
-     return accountJobs[accountJobs.length - 1];
-  }, [jobs, activeAccount, specificJobId]);
+     return getActiveJobForAccount(activeAccount.id);
+  }, [activeAccount, getActiveJobForAccount]);
 
   const [lists, setLists] = useState<List[]>([]);
   const [selectedList, setSelectedList] = useState<string | null>(null);
@@ -57,13 +48,12 @@ export default function BulkImport() {
   const [defaultFirstName, setDefaultFirstName] = useState("");
   const [delay, setDelay] = useState(1);
 
-  // Details Modal
   const [detailsModalOpen, setDetailsModalOpen] = useState(false);
   const [detailsData, setDetailsData] = useState<any>(null);
 
   const isJobActive = activeJob && ['processing', 'paused'].includes(activeJob.status);
 
-  // --- TIMER LOGIC ---
+  // --- TIMER ---
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
@@ -87,8 +77,14 @@ export default function BulkImport() {
       return Math.max(0, Math.floor(duration / 1000));
   }, [activeJob, now]);
 
-  // --- PERSISTENCE ---
+  // --- PERSISTENCE & RESET ---
   useEffect(() => {
+    // RESET STATE ON ACCOUNT SWITCH
+    setSpecificJobId(null);
+    setLists([]);
+    setDetailsData(null);
+    setDetailsModalOpen(false);
+
     if (activeAccount) {
         const key = `ac_draft_${activeAccount.id}`;
         const saved = sessionStorage.getItem(key);
@@ -178,8 +174,9 @@ export default function BulkImport() {
     const currentApiUrl = activeAccount.apiUrl;
     const currentListId = selectedList;
 
+    // PASS activeAccount.id TO JOB CONTEXT
     const newJobId = addJob({
-        title: `AC Import ${selectedListName} (${activeAccount.id})`, 
+        title: `AC Import ${selectedListName}`, 
         totalItems: contacts.length,
         data: contacts,
         batchSize: 1,
@@ -200,7 +197,7 @@ export default function BulkImport() {
             if (!res.ok) throw new Error("API Error");
             return { ...json, email: contact.email };
         }
-    });
+    }, activeAccount.id); // <--- Link to account
     
     setSpecificJobId(newJobId);
     toast({ title: "Job Started", description: "Bulk import is running in background." });
@@ -265,7 +262,6 @@ export default function BulkImport() {
             {activeJob && (
                 <div className="pt-4 space-y-4">
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center p-4 border rounded-lg bg-muted/50">
-                        {/* REPLACED STATUS WITH TIMER */}
                         <div>
                             <p className="text-xs text-muted-foreground">Time Elapsed</p>
                             <p className="text-lg font-bold font-mono">{formatElapsedTime(elapsedSeconds)}</p>

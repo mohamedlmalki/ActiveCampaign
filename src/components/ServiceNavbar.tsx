@@ -97,7 +97,6 @@ export function ServiceNavbar() {
         { title: "Bulk Import", href: "/" },
         { title: "User Management", href: "/users" },
         { title: "Automations", href: "/automation" },
-        { title: "Emails", href: "/emails" },
       ];
       break;
     case 'buttondown':
@@ -106,7 +105,7 @@ export function ServiceNavbar() {
         { title: "Subscribers", href: "/users" },
         { title: "Emails", href: "/emails" },         // <--- ADDED: Emails List Page
         { title: "Analytics", href: "/analytics" },   // <--- ADDED: Analytics Page
-        { title: "Send Email", href: "/send" },
+        { title: "Add Letter", href: "/send" },
       ];
       break;
     case 'omnisend':
