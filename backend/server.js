@@ -9,44 +9,37 @@ const PORT = 3001;
 const ACCOUNTS_FILE = path.join(__dirname, "accounts.json");
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 
 // --- 1. IMPORT ROUTERS ---
 const activeCampaignRoutes = require('./routes/activecampaign');
 const benchmarkRoutes = require('./routes/benchmark');
 const omnisendRoutes = require('./routes/omnisend');
-const buttondownRoutes = require('./routes/buttondown'); // <--- NEW IMPORT
+const buttondownRoutes = require('./routes/buttondown');
+const brevoRoutes = require('./routes/brevo'); // <--- NEW IMPORT
 
 // --- 2. MOUNT ROUTERS ---
 app.use('/api/activecampaign', activeCampaignRoutes);
 app.use('/api/benchmark', benchmarkRoutes);
 app.use('/api/omnisend', omnisendRoutes);
-app.use('/api/buttondown', buttondownRoutes); // <--- NEW MOUNT
-
+app.use('/api/buttondown', buttondownRoutes);
+app.use('/api/brevo', brevoRoutes); // <--- NEW MOUNT
 
 // --- 3. ACCOUNTS MANAGEMENT ---
-
 const readAccounts = async () => {
   try {
     const data = await fs.readFile(ACCOUNTS_FILE, "utf-8");
     return JSON.parse(data);
   } catch (error) {
     if (error.code === 'ENOENT') return [];
-    console.error("Error reading accounts file:", error);
     throw new Error("Could not read accounts data.");
   }
 };
 
 const writeAccounts = async (accounts) => {
-  try {
-      await fs.writeFile(ACCOUNTS_FILE, JSON.stringify(accounts, null, 2));
-  } catch (error) {
-      console.error("Error writing accounts file:", error);
-      throw new Error("Could not save accounts data.");
-  }
+  await fs.writeFile(ACCOUNTS_FILE, JSON.stringify(accounts, null, 2));
 };
 
-// GET Accounts
 app.get("/api/accounts", async (req, res) => {
   try {
     const accounts = await readAccounts();
@@ -56,7 +49,6 @@ app.get("/api/accounts", async (req, res) => {
   }
 });
 
-// CREATE Account
 app.post("/api/accounts", async (req, res) => {
   try {
     const { name, apiKey, apiUrl, provider } = req.body;
@@ -67,7 +59,7 @@ app.post("/api/accounts", async (req, res) => {
         id: `acc_${Date.now()}_${uuidv4().substring(0, 4)}`, 
         name, 
         apiKey, 
-        apiUrl: apiUrl || '', // Only for ActiveCampaign
+        apiUrl: apiUrl || '', 
         provider: provider || 'activecampaign' 
     };
     
@@ -79,7 +71,6 @@ app.post("/api/accounts", async (req, res) => {
   }
 });
 
-// UPDATE Account
 app.put("/api/accounts/:id", async (req, res) => {
     try {
         const { id } = req.params;
@@ -97,7 +88,6 @@ app.put("/api/accounts/:id", async (req, res) => {
     }
 });
 
-// DELETE Account
 app.delete("/api/accounts/:id", async (req, res) => {
     try {
         const { id } = req.params;
@@ -122,23 +112,14 @@ app.post("/api/accounts/check-status", async (req, res) => {
     } else if (provider === 'omnisend') {
         res.redirect(307, '/api/omnisend/check-status');
     } else if (provider === 'buttondown') {
-        res.redirect(307, '/api/buttondown/check-status'); // <--- NEW REDIRECT
+        res.redirect(307, '/api/buttondown/check-status');
+    } else if (provider === 'brevo') {
+        res.redirect(307, '/api/brevo/check-status'); // <--- NEW REDIRECT
     } else {
         res.redirect(307, '/api/activecampaign/check-status');
     }
 });
 
-
-// --- 4. CATCH ALL ---
-app.use('/api/*', (req, res) => {
-    console.log(`[SERVER] ⚠️ 404 Endpoint Not Found: ${req.originalUrl}`);
-    res.status(404).json({ error: 'API endpoint not found' });
-});
-
 app.listen(PORT, () => {
   console.log(`Backend server is running on http://localhost:${PORT}`);
-  console.log(`   - ActiveCampaign Routes: /api/activecampaign/*`);
-  console.log(`   - Benchmark Routes:      /api/benchmark/*`);
-  console.log(`   - Omnisend Routes:       /api/omnisend/*`);
-  console.log(`   - Buttondown Routes:     /api/buttondown/*`);
 });

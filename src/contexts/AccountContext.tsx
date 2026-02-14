@@ -4,9 +4,10 @@ import React, { createContext, useState, useContext, useEffect, ReactNode, useCa
 export interface Account {
   id: string;
   name: string;
-  provider: 'activecampaign' | 'benchmark' | 'omnisend' | 'buttondown'; // <--- ADDED BUTTONDOWN
+  // --- ADDED 'brevo' ---
+  provider: 'activecampaign' | 'benchmark' | 'omnisend' | 'buttondown' | 'brevo';
   apiKey: string;
-  apiUrl?: string; // Optional (Required for AC)
+  apiUrl?: string; 
   status?: "unknown" | "checking" | "connected" | "failed";
   lastCheckResponse?: any;
 }
@@ -34,13 +35,11 @@ export const AccountProvider = ({ children }: { children: ReactNode }) => {
     setActiveAccountState(account);
   }
 
-  // --- SMART STATUS CHECK ---
   const checkAccountStatus = useCallback(async (account: Account): Promise<Account> => {
     try {
         let endpoint = '';
         let body = {};
 
-        // Determine Endpoint based on Provider
         if (account.provider === 'benchmark') {
             endpoint = '/api/benchmark/check-status';
             body = { apiKey: account.apiKey };
@@ -48,10 +47,12 @@ export const AccountProvider = ({ children }: { children: ReactNode }) => {
             endpoint = '/api/omnisend/check-status';
             body = { apiKey: account.apiKey };
         } else if (account.provider === 'buttondown') {
-            endpoint = '/api/buttondown/check-status'; // <--- NEW CASE
+            endpoint = '/api/buttondown/check-status';
+            body = { apiKey: account.apiKey };
+        } else if (account.provider === 'brevo') {
+            endpoint = '/api/brevo/check-status'; // <--- NEW CASE
             body = { apiKey: account.apiKey };
         } else {
-            // Default to ActiveCampaign
             endpoint = '/api/activecampaign/check-status';
             body = { apiKey: account.apiKey, apiUrl: account.apiUrl };
         }
@@ -76,7 +77,6 @@ export const AccountProvider = ({ children }: { children: ReactNode }) => {
       const response = await fetch("/api/accounts");
       const data: any[] = await response.json();
       
-      // Ensure every account has a provider
       const validAccounts: Account[] = data.map(acc => ({
           ...acc,
           provider: acc.provider || 'activecampaign',
@@ -86,7 +86,6 @@ export const AccountProvider = ({ children }: { children: ReactNode }) => {
       const accountsWithStatus = await Promise.all(validAccounts.map(acc => checkAccountStatus(acc)));
       setAccounts(accountsWithStatus);
 
-      // Restore active account selection
       if (activeAccount) {
          const found = accountsWithStatus.find(a => a.id === activeAccount.id);
          if (found) setActiveAccountState(found);

@@ -12,7 +12,6 @@ import { useAccount } from '@/contexts/AccountContext';
 import { useJob } from '@/contexts/JobContext';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Progress } from '@/components/ui/progress';
-import { Separator } from '@/components/ui/separator';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -31,22 +30,18 @@ export default function BrevoBulkImport() {
     const { activeAccount: selectedAccount } = useAccount();
     const { getActiveJobForAccount, addJob, pauseJob, resumeJob, stopJob } = useJob();
 
-    // Local State
     const [emailListInput, setEmailListInput] = useState('');
     const [delayInput, setDelayInput] = useState(1);
     const [filter, setFilter] = useState<FilterStatus>('all');
-
-    // Brevo Specific State
     const [lists, setLists] = useState<any[]>([]);
     const [selectedList, setSelectedList] = useState<string | null>(null);
-    const [defaultFirstName, setDefaultFirstName] = useState("Friend");
+    
+    // REMOVED: Default "Friend" name state
 
-    // Details Dialog State
     const [viewDetails, setViewDetails] = useState<any | null>(null);
     const [isDetailsOpen, setIsDetailsOpen] = useState(false);
     const [now, setNow] = useState(Date.now());
 
-    // Job Logic
     const currentJob = useMemo(() => {
         if (!selectedAccount) return null;
         return getActiveJobForAccount(selectedAccount.id);
@@ -87,7 +82,11 @@ export default function BrevoBulkImport() {
         
         const contacts = emailListInput.split('\n').filter(l => l.trim()).map(line => {
             const [email, name] = line.split(',');
-            return { email: email.trim(), firstName: name?.trim() || defaultFirstName };
+            // FIX: Only send firstName if explicitly provided. No "Friend" default.
+            return { 
+                email: email.trim(), 
+                firstName: name?.trim() ? name.trim() : undefined 
+            };
         });
 
         const apiKey = selectedAccount.apiKey;
@@ -109,7 +108,11 @@ export default function BrevoBulkImport() {
                 });
                 
                 const data = await res.json();
-                if (!res.ok) throw new Error(data.error || "Failed");
+                // FIX: Pass the real error message up
+                if (!res.ok) {
+                    const msg = data.details?.message || data.error || "Failed";
+                    throw new Error(msg);
+                }
                 return { ...data, email: contact.email };
             }
         }, selectedAccount.id);
@@ -117,7 +120,6 @@ export default function BrevoBulkImport() {
         toast({ title: "Job Started", description: "Importing contacts to Brevo..." });
     };
 
-    // Derived Stats
     const elapsedTime = useMemo(() => {
         if (!currentJob) return 0;
         const isDone = ['completed', 'failed', 'stopped'].includes(currentJob.status);
@@ -152,7 +154,6 @@ export default function BrevoBulkImport() {
             {!selectedAccount && <Alert variant="destructive" className="mb-6"><Terminal className="h-4 w-4" /><AlertTitle>No Account</AlertTitle><AlertDescription>Select a Brevo account.</AlertDescription></Alert>}
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 min-h-0">
-                {/* Left: Config */}
                 <Card className="flex flex-col h-full overflow-hidden">
                     <CardHeader className="pb-3 border-b bg-muted/20"><CardTitle className="text-base font-semibold">Configuration</CardTitle></CardHeader>
                     <CardContent className="flex-1 flex flex-col p-4 space-y-4">
@@ -170,8 +171,8 @@ export default function BrevoBulkImport() {
                             </div>
                         </div>
                         <div className="flex-1 flex flex-col min-h-0">
-                            <Label>Emails (one per line)</Label>
-                            <Textarea value={emailListInput} onChange={e => setEmailListInput(e.target.value)} className="flex-1 font-mono text-xs resize-none" placeholder="user@example.com,Name" disabled={isWorking} />
+                            <Label>Emails (email,name)</Label>
+                            <Textarea value={emailListInput} onChange={e => setEmailListInput(e.target.value)} className="flex-1 font-mono text-xs resize-none" placeholder="user@example.com&#10;user2@example.com,John" disabled={isWorking} />
                         </div>
                         <Button onClick={handleStartImport} disabled={!selectedAccount || isWorking || !selectedList} className="w-full"><Play className="mr-2 h-4 w-4" /> Start Import</Button>
                         {isWorking && (
@@ -183,7 +184,6 @@ export default function BrevoBulkImport() {
                     </CardContent>
                 </Card>
 
-                {/* Right: Results */}
                 <Card className="flex flex-col h-full overflow-hidden border-l-4 border-l-primary/20">
                     <CardHeader className="pb-3 border-b bg-muted/20 flex flex-row justify-between items-center space-y-0">
                         <CardTitle className="text-base font-semibold">Results</CardTitle>
@@ -208,7 +208,7 @@ export default function BrevoBulkImport() {
                                         <TableRow key={i} className="h-9">
                                             <TableCell className="text-xs text-muted-foreground">{filteredResults.length - i}</TableCell>
                                             <TableCell className="text-xs">{r.data?.email}</TableCell>
-                                            <TableCell><Badge variant="outline" className={r.status === 'success' ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50'}>{r.status}</Badge></TableCell>
+                                            <TableCell><Badge variant="outline" className={r.status === 'success' ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50'}>{r.status === 'success' ? 'OK' : 'Fail'}</Badge></TableCell>
                                             <TableCell className="text-right"><Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { setViewDetails(r); setIsDetailsOpen(true); }}><Info className="h-3 w-3" /></Button></TableCell>
                                         </TableRow>
                                     ))}
@@ -220,7 +220,7 @@ export default function BrevoBulkImport() {
             </div>
             
             <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
-                <DialogContent><DialogHeader><DialogTitle>Log Details</DialogTitle></DialogHeader><ScrollArea className="h-[300px] w-full border p-4 bg-slate-950 text-slate-50 rounded-md"><pre className="text-xs font-mono">{JSON.stringify(viewDetails, null, 2)}</pre></ScrollArea></DialogContent>
+                <DialogContent><DialogHeader><DialogTitle>Log Details</DialogTitle></DialogHeader><ScrollArea className="h-[300px] w-full border p-4 bg-slate-950 text-slate-50 rounded-md"><pre className="text-xs font-mono whitespace-pre-wrap">{JSON.stringify(viewDetails || {}, null, 2)}</pre></ScrollArea></DialogContent>
             </Dialog>
         </div>
     );

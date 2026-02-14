@@ -4,14 +4,14 @@ import { useAccount } from "@/contexts/AccountContext";
 import { CampaignStatusSelect } from "./CampaignStatusSelect";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
-import { Button } from "@/components/ui/button"; 
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"; 
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { CheckCircle, XCircle, Loader2, HelpCircle } from "lucide-react"; 
+import { CheckCircle, XCircle, Loader2, HelpCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 export function ServiceNavbar() {
-  const { activeAccount, checkAccountStatus } = useAccount(); 
+  const { activeAccount, checkAccountStatus } = useAccount();
   const location = useLocation();
   const { toast } = useToast();
   
@@ -103,14 +103,24 @@ export function ServiceNavbar() {
       navItems = [
         { title: "Bulk Import", href: "/" },
         { title: "Subscribers", href: "/users" },
-        { title: "Emails", href: "/emails" },         // <--- ADDED: Emails List Page
-        { title: "Analytics", href: "/analytics" },   // <--- ADDED: Analytics Page
+        { title: "Emails", href: "/emails" },
+        { title: "Analytics", href: "/analytics" },
         { title: "Add Letter", href: "/send" },
       ];
       break;
     case 'omnisend':
       navItems = [
         { title: "Bulk Import", href: "/" },
+      ];
+      break;
+    case 'brevo': // <--- ADDED BREVO HERE
+      navItems = [
+        { title: "Import", href: "/brevo/import" },
+        { title: "Send", href: "/brevo/transactional" },
+        { title: "Users", href: "/brevo/users" },
+        { title: "Templates", href: "/brevo/templates" },
+        { title: "Stats", href: "/brevo/stats" },
+        { title: "GDPR", href: "/brevo/forget" },
       ];
       break;
   }

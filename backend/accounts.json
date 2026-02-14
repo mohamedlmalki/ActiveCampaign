@@ -54,5 +54,12 @@
     "apiKey": "6803ac6822cb9bfb8c060312-nnwRUk5miQAT54npGVHYlRI1MACf5AjXK2oheFr5bgL1NG8nhI",
     "apiUrl": "",
     "provider": "omnisend"
+  },
+  {
+    "id": "acc_1771052344756_50f4",
+    "name": "1",
+    "apiKey": "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",
+    "apiUrl": "",
+    "provider": "brevo"
   }
 ]

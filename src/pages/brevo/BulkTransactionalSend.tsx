@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Send, Pause, Play as PlayIcon, Square, Clock, Terminal, FileJson, CheckCircle, XCircle, Info, RefreshCw, Eye, ImagePlus } from 'lucide-react';
+import { Send, Square, Clock, Terminal, FileJson, CheckCircle, XCircle, Info, RefreshCw, Eye, ImagePlus } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,7 +11,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { useJob } from '@/contexts/JobContext';
-import { Separator } from '@/components/ui/separator';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -20,7 +19,6 @@ import { PreviewDialog } from '@/components/PreviewDialog';
 import { AddImageDialog } from '@/components/AddImageDialog';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
-// Types
 type FilterStatus = 'all' | 'success' | 'failed';
 const formatTime = (seconds: number) => {
     if (isNaN(seconds) || seconds < 0) return "00:00";
@@ -142,7 +140,13 @@ export default function BulkTransactionalSend() {
                 });
                 
                 const data = await res.json();
-                if (!res.ok) throw new Error(JSON.stringify(data.error || "Failed"));
+                
+                // --- FIX: Extract error message if failure ---
+                if (!res.ok) {
+                    const errorDetails = data.details?.message || data.message || data.error || JSON.stringify(data);
+                    throw new Error(errorDetails);
+                }
+                
                 return { ...data, email: recipient.email };
             }
         }, selectedAccount.id);
@@ -287,7 +291,8 @@ export default function BulkTransactionalSend() {
                 <DialogContent>
                     <DialogHeader><DialogTitle>Response Details</DialogTitle></DialogHeader>
                     <ScrollArea className="h-[300px] w-full border p-4 bg-slate-950 text-slate-50 rounded-md">
-                        <pre className="text-xs font-mono whitespace-pre-wrap">{JSON.stringify(viewDetails?.data || {}, null, 2)}</pre>
+                        {/* --- THE FIX: Showing the WHOLE object, not just .data --- */}
+                        <pre className="text-xs font-mono whitespace-pre-wrap">{JSON.stringify(viewDetails || {}, null, 2)}</pre>
                     </ScrollArea>
                 </DialogContent>
             </Dialog>
