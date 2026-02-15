@@ -52,6 +52,7 @@ router.post("/lists", async (req, res) => {
     try {
         const client = getACClient(apiKey, apiUrl);
         const response = await client.get('/api/3/lists');
+        // We map this to normalize it for the frontend dropdown
         const lists = response.data.lists.map(l => ({ listId: l.id, name: l.name }));
         console.log(`[ACTIVE-CAMPAIGN] ✅ Lists Fetched: Found ${lists.length} lists.`);
         res.json(lists);
@@ -61,7 +62,7 @@ router.post("/lists", async (req, res) => {
     }
 });
 
-// 3. Import Contact
+// 3. Import Contact (FIXED)
 router.post("/import/contact", async (req, res) => {
     const { apiKey, apiUrl, contact, listId } = req.body;
     if (!contact?.email || !listId) {
@@ -72,28 +73,44 @@ router.post("/import/contact", async (req, res) => {
         console.log(`[ACTIVE-CAMPAIGN] 🚀 Importing: ${contact.email} -> List ${listId}`);
         const client = getACClient(apiKey, apiUrl);
         
-        // Step 1: Sync
+        // Step 1: Sync (Create/Update Contact)
         const syncRes = await client.post('/api/3/contact/sync', {
             contact: { email: contact.email, firstName: contact.firstName, lastName: contact.lastName }
         });
         const contactId = syncRes.data.contact.id;
 
         // Step 2: Add to List
-        await client.post('/api/3/contactLists', {
+        const listRes = await client.post('/api/3/contactLists', {
             contactList: { list: listId, contact: contactId, status: 1 }
         });
         
         console.log(`[ACTIVE-CAMPAIGN] ✅ Import Success.`);
-        res.status(202).json({ success: true, contactId });
+        
+        // --- FIX: Return the FULL original response data ---
+        // We merge the contact sync result and the list association result
+        res.status(200).json({ 
+            success: true,
+            contactId: contactId,
+            originalResponse: {
+                contactSync: syncRes.data,
+                listJoin: listRes.data
+            }
+        });
+
     } catch (error) {
         logError("Import Contact", error);
-        res.status(500).json({ error: "Import failed", details: error.message });
+        // Include upstream error data if available so frontend sees why it failed
+        res.status(500).json({ 
+            error: "Import failed", 
+            details: error.message,
+            upstreamError: error.response?.data 
+        });
     }
 });
 
-// --- USER MANAGEMENT ROUTES (These were missing!) ---
+// --- USER MANAGEMENT ROUTES ---
 
-// 4. Fetch Contacts by List (for User Management Page)
+// 4. Fetch Contacts by List
 router.post("/contacts-by-list", async (req, res) => {
     const { apiKey, apiUrl, listId, page = 1, perPage = 10 } = req.body;
     try {

@@ -3,7 +3,8 @@ import { toast } from '@/hooks/use-toast';
 
 export interface Job {
   id: string;
-  accountId: string; // <--- NEW: Links job to a specific account
+  accountId: string;
+  type?: string; 
   title: string;
   totalItems: number;
   processedItems: number;
@@ -24,14 +25,13 @@ export interface Job {
 
 interface JobContextType {
   jobs: Job[];
-  // Updated addJob to accept accountId
   addJob: (jobData: Omit<Job, 'id' | 'accountId' | 'processedItems' | 'failedItems' | 'status' | 'results' | 'startTime' | 'endTime' | 'totalPausedTime'>, accountId: string) => string;
   startJob: (id: string) => void;
   pauseJob: (id: string) => void;
   resumeJob: (id: string) => void;
   stopJob: (id: string) => void;
   removeJob: (id: string) => void;
-  getActiveJobForAccount: (accountId: string) => Job | undefined; // <--- NEW HELPER
+  getActiveJobForAccount: (accountId: string, jobType?: string) => Job | undefined; 
 }
 
 const JobContext = createContext<JobContextType | undefined>(undefined);
@@ -105,13 +105,12 @@ export const JobProvider = ({ children }: { children: ReactNode }) => {
     }
   }, []);
 
-  // Updated addJob to store accountId
   const addJob = useCallback((jobData: Omit<Job, 'id' | 'accountId' | 'processedItems' | 'failedItems' | 'status' | 'results' | 'startTime' | 'endTime' | 'totalPausedTime'>, accountId: string) => {
     const id = Math.random().toString(36).substring(7);
     const newJob: Job = {
       ...jobData,
       id,
-      accountId, // Store account ID
+      accountId,
       processedItems: 0,
       failedItems: 0,
       status: 'pending',
@@ -126,10 +125,7 @@ export const JobProvider = ({ children }: { children: ReactNode }) => {
 
   const pauseJob = useCallback((id: string) => {
      processingRef.current.delete(id);
-     updateJob(id, { 
-         status: 'paused', 
-         pauseStartTime: Date.now() 
-     });
+     updateJob(id, { status: 'paused', pauseStartTime: Date.now() });
   }, []);
 
   const resumeJob = useCallback((id: string) => {
@@ -150,10 +146,29 @@ export const JobProvider = ({ children }: { children: ReactNode }) => {
     }
   }, []);
 
+  // --- FIX: Handle pausing when stopping ---
   const stopJob = useCallback((id: string) => {
       processingRef.current.delete(id);
-      updateJob(id, { status: 'stopped', endTime: Date.now() });
-      toast({ title: "Job Stopped", description: "Processing halted. Data preserved." });
+      
+      setJobs(prev => prev.map(j => {
+          if (j.id !== id) return j;
+          
+          // If stopped while paused, we must account for the pending pause time
+          let finalPausedTime = j.totalPausedTime;
+          if (j.status === 'paused' && j.pauseStartTime) {
+              finalPausedTime += (Date.now() - j.pauseStartTime);
+          }
+          
+          return {
+              ...j,
+              status: 'stopped',
+              endTime: Date.now(),
+              totalPausedTime: finalPausedTime,
+              pauseStartTime: undefined // clear it so it doesn't get double counted
+          };
+      }));
+
+      toast({ title: "Job Stopped", description: "Processing halted." });
   }, []);
 
   const removeJob = useCallback((id: string) => {
@@ -161,18 +176,20 @@ export const JobProvider = ({ children }: { children: ReactNode }) => {
     setJobs((prev) => prev.filter((j) => j.id !== id));
   }, []);
 
-  // Helper to find the active job for a specific account
-  const getActiveJobForAccount = useCallback((accountId: string) => {
-    // Find the most recent job for this account
-    // We reverse to get the latest one added
-    const accountJobs = jobs.filter(j => j.accountId === accountId);
+  const getActiveJobForAccount = useCallback((accountId: string, jobType?: string) => {
+    let accountJobs = jobs.filter(j => j.accountId === accountId);
+    
+    if (jobType) {
+        accountJobs = accountJobs.filter(j => j.type === jobType);
+    }
+
     if (accountJobs.length === 0) return undefined;
     
     // Prefer running jobs
     const running = accountJobs.find(j => ['processing', 'pending', 'paused'].includes(j.status));
     if (running) return running;
     
-    // Otherwise return the last one (completed/stopped)
+    // Otherwise return the last one
     return accountJobs[accountJobs.length - 1];
   }, [jobs]);
 

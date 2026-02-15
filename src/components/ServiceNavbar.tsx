@@ -1,3 +1,4 @@
+// src/components/ServiceNavbar.tsx
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useAccount } from "@/contexts/AccountContext";
@@ -15,10 +16,8 @@ export function ServiceNavbar() {
   const location = useLocation();
   const { toast } = useToast();
   
-  // Local state for the spinner while manual checking
   const [isChecking, setIsChecking] = useState(false);
 
-  // --- MANUAL STATUS CHECK HANDLER ---
   const handleStatusCheck = async () => {
     if (!activeAccount) return;
     
@@ -33,7 +32,6 @@ export function ServiceNavbar() {
                 className: "bg-green-50 border-green-200 text-green-900" 
             });
         } else {
-            // Extract error message safely
             const errorMsg = result.lastCheckResponse?.error || 
                              result.lastCheckResponse?.message || 
                              "Unknown API Error";
@@ -62,7 +60,6 @@ export function ServiceNavbar() {
     );
   }
 
-  // --- DETERMINE ICON & COLOR ---
   let StatusIcon = HelpCircle;
   let statusColor = "text-muted-foreground";
   let statusText = "Unknown Status";
@@ -81,7 +78,6 @@ export function ServiceNavbar() {
       statusText = "Connection Failed (Click to retry)";
   }
 
-  // --- DEFINE MENU ITEMS ---
   let navItems: { title: string; href: string }[] = [];
 
   switch (activeAccount.provider) {
@@ -113,9 +109,9 @@ export function ServiceNavbar() {
         { title: "Bulk Import", href: "/" },
       ];
       break;
-    case 'brevo': // <--- ADDED BREVO HERE
+    case 'brevo': 
       navItems = [
-        { title: "Import", href: "/brevo/import" },
+        { title: "Import", href: "/" }, // <--- UPDATED to root
         { title: "Send", href: "/brevo/transactional" },
         { title: "Users", href: "/brevo/users" },
         { title: "Templates", href: "/brevo/templates" },
@@ -130,7 +126,6 @@ export function ServiceNavbar() {
       <SidebarTrigger className="mr-2" />
       <Separator orientation="vertical" className="mx-2 h-6" />
       
-      {/* --- ACCOUNT NAME + STATUS ICON --- */}
       <div className="flex items-center mr-6 min-w-fit gap-2">
         <span className="font-semibold text-sm">{activeAccount.name}</span>
         
@@ -154,7 +149,6 @@ export function ServiceNavbar() {
         </TooltipProvider>
       </div>
 
-      {/* Navigation Links */}
       <nav className="flex items-center gap-1 flex-1 overflow-x-auto no-scrollbar">
         {navItems.map((item) => {
           const isActive = location.pathname === item.href;
@@ -175,7 +169,6 @@ export function ServiceNavbar() {
         })}
       </nav>
 
-      {/* Progress Dropdown */}
       <div className="ml-auto pl-2 flex items-center gap-2">
         <CampaignStatusSelect />
       </div>

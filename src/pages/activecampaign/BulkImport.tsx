@@ -42,7 +42,7 @@ const ActiveCampaignBulkImport = () => {
     const [lists, setLists] = useState<any[]>([]);
     const [isLoadingLists, setIsLoadingLists] = useState(false);
     const [selectedList, setSelectedList] = useState<string | null>(null);
-    const [defaultFirstName, setDefaultFirstName] = useState("Friend");
+    const [defaultFirstName, setDefaultFirstName] = useState("");
     
     // Details Dialog State
     const [viewDetails, setViewDetails] = useState<any | null>(null);
@@ -78,12 +78,12 @@ const ActiveCampaignBulkImport = () => {
                         setSelectedList(null);
                     }
                     
-                    setDefaultFirstName(parsed.defaultFirstName || "Friend");
+                    setDefaultFirstName(parsed.defaultFirstName || "");
                 } catch (e) { console.error(e); }
             } else {
                 setEmailListInput("");
                 setSelectedList(null);
-                setDefaultFirstName("Friend");
+                setDefaultFirstName("");
             }
             
             // Fetch Lists
@@ -361,11 +361,11 @@ const ActiveCampaignBulkImport = () => {
 
                             {/* Default Name */}
                             <div className="col-span-1">
-                                <Label className="text-xs uppercase tracking-wider text-muted-foreground mb-1 block">Default Name</Label>
+                                <Label className="text-xs uppercase tracking-wider text-muted-foreground mb-1 block">First Name</Label>
                                 <Input 
                                     value={defaultFirstName} 
                                     onChange={handleNameChange} 
-                                    placeholder="Friend" 
+                                    placeholder="" 
                                     disabled={isWorking} 
                                     className="h-8 text-sm"
                                 />

@@ -2,7 +2,8 @@ import { useAccount } from "@/contexts/AccountContext";
 import ActiveCampaignImport from "./activecampaign/BulkImport";
 import BenchmarkImport from "./benchmark/BulkImport";
 import OmnisendImport from "./omnisend/BulkImport";
-import ButtondownImport from "./buttondown/BulkImport"; // <--- NEW IMPORT
+import ButtondownImport from "./buttondown/BulkImport"; 
+import BrevoImport from "./brevo/BulkImport"; // <--- THIS WAS MISSING
 
 export default function BulkImport() {
   const { activeAccount } = useAccount();
@@ -23,7 +24,9 @@ export default function BulkImport() {
     case 'omnisend':
       return <OmnisendImport />;
     case 'buttondown':
-      return <ButtondownImport />; // <--- NEW CASE
+      return <ButtondownImport />;
+    case 'brevo':
+      return <BrevoImport />; 
     default:
       return <div>Unknown provider: {activeAccount.provider}</div>;
   }

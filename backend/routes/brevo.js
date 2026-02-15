@@ -5,7 +5,6 @@ const router = express.Router();
 // --- LOGGING MIDDLEWARE ---
 router.use((req, res, next) => {
     console.log(`\n[BREVO] 📩 Incoming ${req.method} request to ${req.originalUrl}`);
-    // Only log body if it's small to avoid console spam
     if (req.body && !req.body.htmlContent) {
         console.log(`[BREVO] 📦 Body:`, JSON.stringify(req.body, null, 2));
     }
@@ -57,7 +56,7 @@ router.post("/lists", async (req, res) => {
     }
 });
 
-// 3. Import Contact (Single)
+// 3. Import Contact
 router.post("/contact", async (req, res) => {
     const { apiKey, contact, listId } = req.body;
     if (!contact?.email || !listId) return res.status(400).json({ error: "Missing email or listId" });
@@ -67,24 +66,36 @@ router.post("/contact", async (req, res) => {
         const payload = {
             email: contact.email,
             listIds: [parseInt(listId, 10)],
-            updateEnabled: true, // Upsert
+            updateEnabled: true, 
             attributes: {}
         };
         if (contact.firstName) payload.attributes.FIRSTNAME = contact.firstName;
         if (contact.lastName) payload.attributes.LASTNAME = contact.lastName;
 
         const response = await client.post('/contacts', payload);
-        res.status(201).json(response.data);
+        
+        let responseBody = response.data;
+        let contactId = response.data?.id;
+
+        if (response.status === 204) {
+             responseBody = { status: "updated", message: "Contact updated." };
+        } else {
+             responseBody = { status: "created", data: response.data };
+        }
+
+        res.status(200).json({
+            success: true,
+            contactId: contactId,
+            originalResponse: responseBody
+        });
+
     } catch (error) {
-        // Brevo throws 400 if user exists and updateEnabled is false, 
-        // but here we set updateEnabled=true. 
-        // If it fails, return details.
         const details = error.response?.data || { message: error.message };
-        res.status(error.response?.status || 500).json({ error: "Import failed", details });
+        res.status(error.response?.status || 500).json({ error: "Import failed", details, originalResponse: details });
     }
 });
 
-// 4. List Contacts (For User Management)
+// 4. List Contacts
 router.post("/list-contacts", async (req, res) => {
     const { apiKey, listId, page = 1, perPage = 10 } = req.body;
     const limit = parseInt(perPage, 10);
@@ -93,21 +104,17 @@ router.post("/list-contacts", async (req, res) => {
     try {
         const client = getBrevoApiClient(apiKey);
         const response = await client.get(`/contacts/lists/${listId}/contacts`, { params: { limit, offset } });
-        res.json({ 
-            contacts: response.data.contacts || [], 
-            total: response.data.count || 0 
-        });
+        res.json({ contacts: response.data.contacts || [], total: response.data.count || 0 });
     } catch (error) {
         res.status(500).json({ error: "Failed to fetch contacts" });
     }
 });
 
-// 5. Delete Contacts (Bulk)
+// 5. Delete Contacts
 router.post("/delete-contacts", async (req, res) => {
     const { apiKey, emails } = req.body;
     const client = getBrevoApiClient(apiKey);
     const results = { success: [], failed: [] };
-
     for (const email of emails) {
         try {
             await client.delete(`/contacts/${encodeURIComponent(email)}`);
@@ -119,15 +126,44 @@ router.post("/delete-contacts", async (req, res) => {
     res.json({ message: "Deletion process complete", details: results });
 });
 
-// 6. Fetch Senders
+// 6. Fetch Senders (FIXED & IMPROVED)
 router.post("/senders", async (req, res) => {
     const { apiKey } = req.body;
     try {
         const client = getBrevoApiClient(apiKey);
+        console.log("[BREVO] 📡 Fetching Senders...");
         const response = await client.get('/senders');
-        res.json(response.data.senders || []);
+        
+        const senders = response.data.senders || [];
+        console.log(`[BREVO] ✅ Found ${senders.length} senders.`);
+        
+        res.json(senders);
     } catch (error) {
-        res.status(500).json({ error: "Failed to fetch senders" });
+        console.error("[BREVO] ❌ Fetch Senders Failed:", error.response?.data || error.message);
+        const details = error.response?.data || { message: error.message };
+        // Return the actual status code (e.g., 401 for bad key)
+        res.status(error.response?.status || 500).json({ error: "Failed to fetch senders", details });
+    }
+});
+
+// --- NEW ROUTE: Update Sender Name ---
+router.put("/senders/:id", async (req, res) => {
+    const { apiKey, name } = req.body;
+    const { id } = req.params;
+
+    if (!name) return res.status(400).json({ error: "Name is required" });
+
+    try {
+        console.log(`[BREVO] 📝 Updating Sender ${id} to name: "${name}"`);
+        const client = getBrevoApiClient(apiKey);
+        
+        await client.put(`/senders/${id}`, { name });
+        
+        res.status(200).json({ success: true, message: "Sender name updated" });
+    } catch (error) {
+        console.error("[BREVO] ❌ Update Sender Failed:", error.response?.data || error.message);
+        const details = error.response?.data || { message: error.message };
+        res.status(error.response?.status || 500).json({ error: "Failed to update sender", details });
     }
 });
 
@@ -169,14 +205,11 @@ router.put("/templates/:id", async (req, res) => {
     try {
         const client = getBrevoApiClient(apiKey);
         const payload = { subject, htmlContent };
-        
-        // Complex sender logic from Brevo requirements
         if (sender) {
             payload.sender = { name: sender.name };
             if (originalSenderId) payload.sender.id = originalSenderId;
             else if (sender.email) payload.sender.email = sender.email;
         }
-
         await client.put(`/smtp/templates/${id}`, payload);
         res.sendStatus(204);
     } catch (error) {
@@ -184,7 +217,7 @@ router.put("/templates/:id", async (req, res) => {
     }
 });
 
-// 10. SMTP Statistics
+// 10. SMTP Stats
 router.post("/smtp-stats/aggregated", async (req, res) => {
     const { apiKey, startDate, endDate } = req.body;
     try {

@@ -42,7 +42,7 @@ const BenchmarkBulkImport = () => {
     const [lists, setLists] = useState<any[]>([]);
     const [isLoadingLists, setIsLoadingLists] = useState(false);
     const [selectedList, setSelectedList] = useState<string | null>(null);
-    const [defaultFirstName, setDefaultFirstName] = useState("Friend");
+    const [defaultFirstName, setDefaultFirstName] = useState("");
     
     // Details Dialog State
     const [viewDetails, setViewDetails] = useState<any | null>(null);
@@ -70,15 +70,13 @@ const BenchmarkBulkImport = () => {
                     const parsed = JSON.parse(savedDraft);
                     setEmailListInput(parsed.importData || "");
                     setSelectedList(parsed.selectedList || null);
-                    setDefaultFirstName(parsed.defaultFirstName || "Friend");
+                    setDefaultFirstName(parsed.defaultFirstName || "");
                 } catch (e) { console.error(e); }
             } else {
                 setEmailListInput("");
                 setSelectedList(null);
-                setDefaultFirstName("Friend");
+                setDefaultFirstName("");
             }
-            
-            // Fetch Lists
             fetchLists();
         } 
     }, [selectedAccount?.id]); 
@@ -216,16 +214,18 @@ const BenchmarkBulkImport = () => {
                     body: JSON.stringify({ 
                         apiKey: currentApiKey, 
                         listId: currentListId,
-                        contact: contact // <--- FIX: Send as 'contact' (singular), NOT 'contacts' array
+                        contact: contact
                     })
                 });
                 
                 const data = await res.json();
                 
                 if (!res.ok) {
-                     throw new Error(JSON.stringify(data.error || data.errors || "Failed"));
+                     // --- FIX: Throw the FULL data object (as string) so we can display it later ---
+                     throw new Error(JSON.stringify(data));
                 }
                 
+                // On success, return the data merged with input
                 return { ...data, email: contact.email };
             }
         }, selectedAccount.id);
@@ -270,6 +270,25 @@ const BenchmarkBulkImport = () => {
     }, [currentJob]);
 
     const progress = currentJob && currentJob.totalItems > 0 ? (currentJob.processedItems / currentJob.totalItems) * 100 : 0;
+
+    // --- FIX: Helper to extract content for the Dialog ---
+    const getDialogContent = () => {
+        if (!viewDetails) return "{}";
+        
+        // If it failed, try to parse the error string (which contains our JSON)
+        if (viewDetails.status === 'failed' || viewDetails.status === 'error') {
+            try {
+                const parsedError = JSON.parse(viewDetails.error);
+                return JSON.stringify(parsedError, null, 2);
+            } catch (e) {
+                // If it's just a string error
+                return JSON.stringify({ error: viewDetails.error, inputData: viewDetails.data }, null, 2);
+            }
+        }
+        
+        // If success, just show data
+        return JSON.stringify(viewDetails.data || {}, null, 2);
+    };
 
     return (
         <div className="p-6 max-w-[1600px] mx-auto animate-in fade-in duration-500 h-[calc(100vh-60px)] flex flex-col">
@@ -327,7 +346,6 @@ const BenchmarkBulkImport = () => {
 
                         {/* Settings Section */}
                         <div className="grid grid-cols-2 gap-4 shrink-0">
-                            
                             {/* List Selector */}
                             <div className="col-span-2">
                                 <div className="flex justify-between items-center mb-1">
@@ -350,11 +368,11 @@ const BenchmarkBulkImport = () => {
 
                             {/* Default Name */}
                             <div className="col-span-1">
-                                <Label className="text-xs uppercase tracking-wider text-muted-foreground mb-1 block">Default Name</Label>
+                                <Label className="text-xs uppercase tracking-wider text-muted-foreground mb-1 block">First Name</Label>
                                 <Input 
                                     value={defaultFirstName} 
                                     onChange={handleNameChange} 
-                                    placeholder="Friend" 
+                                    placeholder="" 
                                     disabled={isWorking} 
                                     className="h-8 text-sm"
                                 />
@@ -523,7 +541,8 @@ const BenchmarkBulkImport = () => {
                     </DialogHeader>
                     <ScrollArea className="h-[300px] w-full rounded-md border p-4 bg-slate-950 text-slate-50">
                         <pre className="text-xs font-mono whitespace-pre-wrap break-all">
-                            {JSON.stringify(viewDetails?.data || {}, null, 2)}
+                            {/* --- FIX: Use our new helper function to show error details if failed --- */}
+                            {getDialogContent()}
                         </pre>
                     </ScrollArea>
                 </DialogContent>

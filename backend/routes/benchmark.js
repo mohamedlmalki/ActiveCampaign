@@ -63,7 +63,7 @@ router.post("/lists", async (req, res) => {
     }
 });
 
-// 3. Import Contact
+// 3. Import Contact (FIXED)
 router.post("/import/contact", async (req, res) => {
     const { apiKey, contact, listId } = req.body;
     if (!contact?.email || !listId) return res.status(400).json({ error: "Missing email or listId" });
@@ -82,23 +82,31 @@ router.post("/import/contact", async (req, res) => {
         const response = await client.post(`/Contact/${listId}/ContactDetails`, payload);
         const result = response.data.Response;
 
-        // --- DEBUG LOG: See exactly what Benchmark sends back ---
         console.log(`[BENCHMARK] Import Response for ${contact.email}:`, JSON.stringify(result));
 
-        // --- FIXED SUCCESS CHECK ---
-        // Success if Status is 1 OR if we got a valid ID back (which means it worked)
-        const isSuccess = (result.Status === 1 || result.Status === "1") || (result.ID && result.ID > 0);
+        // Success if Status is 1 OR if we got a valid ID back
+        const isSuccess = (result.Status === 1 || result.Status === "1") || (result.ID && parseInt(result.ID) > 0);
 
         if (isSuccess) {
-            res.status(202).json({ success: true, data: result });
+            res.status(202).json({ 
+                success: true, 
+                data: result 
+            });
         } else {
-            // Even if "failed", log it so we know why
             console.error(`[BENCHMARK] ❌ Import deemed failure:`, result);
-            res.status(400).json({ error: "API Failure", details: result });
+            // We return 400 so frontend knows it failed, but we include "details" with the full response
+            res.status(400).json({ 
+                error: "API Failure", 
+                details: result 
+            });
         }
     } catch (error) {
         console.error(`[BENCHMARK] 💥 Exception:`, error.message);
-        res.status(500).json({ error: "Import failed", details: error.message });
+        res.status(500).json({ 
+            error: "Import failed", 
+            details: error.message,
+            upstreamError: error.response?.data 
+        });
     }
 });
 

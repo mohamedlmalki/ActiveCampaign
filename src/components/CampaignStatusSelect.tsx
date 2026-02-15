@@ -123,10 +123,17 @@ export function CampaignStatusSelect() {
                                 {selectedAccount.name} <span className="text-muted-foreground font-normal text-xs capitalize">- {selectedAccount.provider}</span>
                             </span>
                             {/* Status Badge */}
-                            <Badge variant="outline" className={cn("text-[10px] h-5 px-1.5 capitalize gap-1", getStatusColor(selectedJob.status))}>
-                                {getStatusIcon(selectedJob.status)}
-                                {selectedJob.status}
-                            </Badge>
+                            <div className="flex items-center gap-1">
+                                {selectedJob.failedItems > 0 && (
+                                    <Badge variant="destructive" className="text-[10px] h-5 px-1.5 gap-1 bg-red-500 hover:bg-red-500">
+                                        {selectedJob.failedItems} Failed
+                                    </Badge>
+                                )}
+                                <Badge variant="outline" className={cn("text-[10px] h-5 px-1.5 capitalize gap-1", getStatusColor(selectedJob.status))}>
+                                    {getStatusIcon(selectedJob.status)}
+                                    {selectedJob.status}
+                                </Badge>
+                            </div>
                         </div>
                         
                         {/* Bottom Line: Counters */}
@@ -163,6 +170,7 @@ export function CampaignStatusSelect() {
                                 // Check if this is the currently "Viewed" account in the main app
                                 const isCurrentContext = account.id === activeAccount?.id;
                                 const jobProgress = job.totalItems > 0 ? (job.processedItems / job.totalItems) * 100 : 0;
+                                const failCount = job.failedItems || 0;
 
                                 return (
                                     <CommandItem
@@ -192,6 +200,12 @@ export function CampaignStatusSelect() {
                                                     {getStatusIcon(job.status)}
                                                     {job.status}
                                                 </span>
+                                                {/* --- FAIL COUNTER --- */}
+                                                {failCount > 0 && (
+                                                    <span className="flex items-center justify-center h-4 px-1.5 rounded-full bg-red-100 text-[9px] font-bold text-red-600">
+                                                        {failCount} Fail
+                                                    </span>
+                                                )}
                                             </div>
                                             <span className="font-mono text-muted-foreground">
                                                 {job.processedItems}/{job.totalItems}

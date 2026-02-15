@@ -30,21 +30,21 @@ export default function BrevoBulkImport() {
     const { activeAccount: selectedAccount } = useAccount();
     const { getActiveJobForAccount, addJob, pauseJob, resumeJob, stopJob } = useJob();
 
+    // --- State ---
     const [emailListInput, setEmailListInput] = useState('');
     const [delayInput, setDelayInput] = useState(1);
+    const [defaultName, setDefaultName] = useState(''); // <--- NEW STATE
     const [filter, setFilter] = useState<FilterStatus>('all');
     const [lists, setLists] = useState<any[]>([]);
     const [selectedList, setSelectedList] = useState<string | null>(null);
     
-    // REMOVED: Default "Friend" name state
-
     const [viewDetails, setViewDetails] = useState<any | null>(null);
     const [isDetailsOpen, setIsDetailsOpen] = useState(false);
     const [now, setNow] = useState(Date.now());
 
     const currentJob = useMemo(() => {
         if (!selectedAccount) return null;
-        return getActiveJobForAccount(selectedAccount.id);
+        return getActiveJobForAccount(selectedAccount.id, 'import');
     }, [selectedAccount, getActiveJobForAccount]);
 
     const isRunning = currentJob?.status === 'processing';
@@ -56,11 +56,33 @@ export default function BrevoBulkImport() {
         return () => clearInterval(timer);
     }, []);
 
+    // --- Persistence & Init ---
     useEffect(() => {
         if (selectedAccount?.provider === 'brevo') {
+            const savedDraft = sessionStorage.getItem(`brevo_draft_${selectedAccount.id}`);
+            if (savedDraft) {
+                try {
+                    const parsed = JSON.parse(savedDraft);
+                    setEmailListInput(parsed.importData || "");
+                    setSelectedList(parsed.selectedList || null);
+                    if (parsed.delay) setDelayInput(parsed.delay);
+                    if (parsed.defaultName) setDefaultName(parsed.defaultName); // <--- Restore Default Name
+                } catch (e) {}
+            }
             fetchLists();
         }
     }, [selectedAccount]);
+
+    const saveState = (updates: any) => {
+        if (!selectedAccount) return;
+        const currentState = { 
+            importData: updates.importData !== undefined ? updates.importData : emailListInput,
+            selectedList: updates.selectedList !== undefined ? updates.selectedList : selectedList,
+            delay: updates.delay !== undefined ? updates.delay : delayInput,
+            defaultName: updates.defaultName !== undefined ? updates.defaultName : defaultName // <--- Save Default Name
+        };
+        sessionStorage.setItem(`brevo_draft_${selectedAccount.id}`, JSON.stringify(currentState));
+    };
 
     const fetchLists = async () => {
         if (!selectedAccount) return;
@@ -78,14 +100,18 @@ export default function BrevoBulkImport() {
     };
 
     const handleStartImport = () => {
-        if (!selectedAccount || !selectedList || !emailListInput.trim()) return;
+        if (!selectedAccount || !selectedList || !emailListInput.trim()) {
+            toast({ title: "Error", description: "Missing configuration.", variant: "destructive" });
+            return;
+        }
         
         const contacts = emailListInput.split('\n').filter(l => l.trim()).map(line => {
-            const [email, name] = line.split(',');
-            // FIX: Only send firstName if explicitly provided. No "Friend" default.
+            const [email, fname, lname] = line.split(',');
             return { 
                 email: email.trim(), 
-                firstName: name?.trim() ? name.trim() : undefined 
+                // --- FIX: Use Default Name if first name is missing ---
+                firstName: fname?.trim() ? fname.trim() : defaultName, 
+                lastName: lname?.trim() ? lname.trim() : undefined 
             };
         });
 
@@ -94,6 +120,7 @@ export default function BrevoBulkImport() {
 
         addJob({
             title: `Brevo Import (${contacts.length})`,
+            type: 'import',
             totalItems: contacts.length,
             data: contacts,
             apiEndpoint: 'brevo-import',
@@ -108,7 +135,7 @@ export default function BrevoBulkImport() {
                 });
                 
                 const data = await res.json();
-                // FIX: Pass the real error message up
+                
                 if (!res.ok) {
                     const msg = data.details?.message || data.error || "Failed";
                     throw new Error(msg);
@@ -118,6 +145,19 @@ export default function BrevoBulkImport() {
         }, selectedAccount.id);
         
         toast({ title: "Job Started", description: "Importing contacts to Brevo..." });
+    };
+
+    // --- Handlers ---
+    const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        const val = e.target.value;
+        setEmailListInput(val);
+        saveState({ importData: val });
+    };
+
+    const handleDefaultNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const val = e.target.value;
+        setDefaultName(val);
+        saveState({ defaultName: val });
     };
 
     const elapsedTime = useMemo(() => {
@@ -157,23 +197,49 @@ export default function BrevoBulkImport() {
                 <Card className="flex flex-col h-full overflow-hidden">
                     <CardHeader className="pb-3 border-b bg-muted/20"><CardTitle className="text-base font-semibold">Configuration</CardTitle></CardHeader>
                     <CardContent className="flex-1 flex flex-col p-4 space-y-4">
+                        
+                        {/* Configuration Grid */}
                         <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <Label>Target List</Label>
-                                <Select value={selectedList || ""} onValueChange={setSelectedList} disabled={isWorking}>
+                            {/* Target List */}
+                            <div className="col-span-2">
+                                <Label className="mb-1 block">Target List</Label>
+                                <Select value={selectedList || ""} onValueChange={val => {setSelectedList(val); saveState({selectedList: val})}} disabled={isWorking}>
                                     <SelectTrigger><SelectValue placeholder="Select List" /></SelectTrigger>
                                     <SelectContent>{lists.map(l => <SelectItem key={l.id} value={String(l.id)}>{l.name}</SelectItem>)}</SelectContent>
                                 </Select>
                             </div>
+
+                            {/* Delay Input */}
                             <div>
-                                <Label>Delay (s)</Label>
-                                <Input type="number" value={delayInput} onChange={e => setDelayInput(Number(e.target.value))} disabled={isWorking} />
+                                <Label className="mb-1 block">Delay (s)</Label>
+                                <Input type="number" value={delayInput} onChange={e => {setDelayInput(Number(e.target.value)); saveState({delay: Number(e.target.value)})}} disabled={isWorking} />
+                            </div>
+
+                            {/* --- NEW: Default Name Input --- */}
+                            <div>
+                                <Label className="mb-1 block">First Name</Label>
+                                <Input 
+                                    value={defaultName} 
+                                    onChange={handleDefaultNameChange} 
+                                    placeholder="" 
+                                    disabled={isWorking} 
+                                />
                             </div>
                         </div>
+
+                        {/* Text Area */}
                         <div className="flex-1 flex flex-col min-h-0">
-                            <Label>Emails (email,name)</Label>
-                            <Textarea value={emailListInput} onChange={e => setEmailListInput(e.target.value)} className="flex-1 font-mono text-xs resize-none" placeholder="user@example.com&#10;user2@example.com,John" disabled={isWorking} />
+                            <Label className="mb-1 block">Emails (email,firstname,lastname)</Label>
+                            <Textarea 
+                                value={emailListInput} 
+                                onChange={handleTextareaChange} 
+                                className="flex-1 font-mono text-xs resize-none" 
+                                placeholder="user@example.com&#10;user2@example.com,John&#10;user3@example.com,Jane,Doe" 
+                                disabled={isWorking} 
+                            />
                         </div>
+
+                        {/* Buttons */}
                         <Button onClick={handleStartImport} disabled={!selectedAccount || isWorking || !selectedList} className="w-full"><Play className="mr-2 h-4 w-4" /> Start Import</Button>
                         {isWorking && (
                             <div className="flex gap-2">
